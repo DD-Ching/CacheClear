@@ -7,43 +7,13 @@
 
 import SwiftUI
 import Carbon
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject private var hotKeyManager = HotKeyManager.shared
     @State private var isRecording = false
-    @State private var hasCustomIcon = AppDelegate.shared?.hasCustomIcon ?? false
 
     var body: some View {
         VStack(spacing: 16) {
-            // 圖示設定區
-            GroupBox("Menu Bar 圖示") {
-                VStack(spacing: 12) {
-                    Text("自訂你的專屬 Logo")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack(spacing: 12) {
-                        Button("選擇圖片...") {
-                            selectImage()
-                        }
-
-                        if hasCustomIcon {
-                            Button("恢復預設") {
-                                AppDelegate.shared?.resetToDefaultIcon()
-                                hasCustomIcon = false
-                            }
-                            .foregroundColor(.red)
-                        }
-                    }
-
-                    Text("建議使用 18x18 或 36x36 PNG 圖片")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.vertical, 8)
-            }
-
             // 快捷鍵設定區
             GroupBox("全域快捷鍵") {
                 VStack(spacing: 8) {
@@ -72,20 +42,6 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 300, height: 320)
-    }
-
-    private func selectImage() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.png, .jpeg, .gif, .heic, .heif, .tiff]
-        panel.message = "選擇 Menu Bar 圖示（建議 18x18 或 36x36）"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            AppDelegate.shared?.setCustomIcon(from: url)
-            hasCustomIcon = true
-        }
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Carbon
 import SwiftUI
 import Combine
 
@@ -14,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
+    private var cancellables = Set<AnyCancellable>()
 
     @Published var cacheSize: String = "..."
     @Published var lastCleared: String = ""
@@ -22,11 +24,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var normalIcon: NSImage?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppDelegate.shared = self
         setupMenuBar()
         setupHotKey()
-        refreshCacheSize()
-        loadCustomIcon()
     }
 
     private func setupMenuBar() {
@@ -47,6 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         menu.addItem(NSMenuItem.separator())
 
         let clearItem = NSMenuItem(title: "清除暫存", action: #selector(clearCache), keyEquivalent: "")
+        clearItem.tag = 101
         menu.addItem(clearItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -60,12 +60,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+        updateClearMenuShortcut(HotKeyManager.shared.currentShortcut)
     }
 
     private func setupHotKey() {
         HotKeyManager.shared.onHotKeyPressed = { [weak self] in
             self?.clearCache()
         }
+
+        HotKeyManager.shared.$currentShortcut
+            .receive(on: RunLoop.main)
+            .sink { [weak self] shortcut in
+                self?.updateClearMenuShortcut(shortcut)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Custom Icon
@@ -148,6 +156,76 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
            let item = menu.item(withTag: 100) {
             item.title = "暫存: \(size)"
         }
+    }
+
+    private func updateClearMenuShortcut(_ shortcut: HotKeyManager.KeyShortcut?) {
+        guard let menu = statusItem.menu,
+              let item = menu.item(withTag: 101) else {
+            return
+        }
+
+        guard let shortcut,
+              let keyEquivalent = keyEquivalentString(for: shortcut.keyCode) else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = modifierFlags(from: shortcut.modifiers)
+    }
+
+    private func keyEquivalentString(for keyCode: UInt32) -> String? {
+        switch keyCode {
+        case UInt32(kVK_ANSI_A): return "a"
+        case UInt32(kVK_ANSI_B): return "b"
+        case UInt32(kVK_ANSI_C): return "c"
+        case UInt32(kVK_ANSI_D): return "d"
+        case UInt32(kVK_ANSI_E): return "e"
+        case UInt32(kVK_ANSI_F): return "f"
+        case UInt32(kVK_ANSI_G): return "g"
+        case UInt32(kVK_ANSI_H): return "h"
+        case UInt32(kVK_ANSI_I): return "i"
+        case UInt32(kVK_ANSI_J): return "j"
+        case UInt32(kVK_ANSI_K): return "k"
+        case UInt32(kVK_ANSI_L): return "l"
+        case UInt32(kVK_ANSI_M): return "m"
+        case UInt32(kVK_ANSI_N): return "n"
+        case UInt32(kVK_ANSI_O): return "o"
+        case UInt32(kVK_ANSI_P): return "p"
+        case UInt32(kVK_ANSI_Q): return "q"
+        case UInt32(kVK_ANSI_R): return "r"
+        case UInt32(kVK_ANSI_S): return "s"
+        case UInt32(kVK_ANSI_T): return "t"
+        case UInt32(kVK_ANSI_U): return "u"
+        case UInt32(kVK_ANSI_V): return "v"
+        case UInt32(kVK_ANSI_W): return "w"
+        case UInt32(kVK_ANSI_X): return "x"
+        case UInt32(kVK_ANSI_Y): return "y"
+        case UInt32(kVK_ANSI_Z): return "z"
+        case UInt32(kVK_ANSI_0): return "0"
+        case UInt32(kVK_ANSI_1): return "1"
+        case UInt32(kVK_ANSI_2): return "2"
+        case UInt32(kVK_ANSI_3): return "3"
+        case UInt32(kVK_ANSI_4): return "4"
+        case UInt32(kVK_ANSI_5): return "5"
+        case UInt32(kVK_ANSI_6): return "6"
+        case UInt32(kVK_ANSI_7): return "7"
+        case UInt32(kVK_ANSI_8): return "8"
+        case UInt32(kVK_ANSI_9): return "9"
+        case UInt32(kVK_Space): return " "
+        default:
+            return nil
+        }
+    }
+
+    private func modifierFlags(from carbon: UInt32) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if carbon & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if carbon & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if carbon & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if carbon & UInt32(controlKey) != 0 { flags.insert(.control) }
+        return flags
     }
 
     @objc func clearCache() {
