@@ -7,7 +7,7 @@
 "settings.hotkey.button_need_modifier" = "Requires \u2318/\u2325/\u2303";
 
 "settings.cache_folder.group_title" = "Cache Folder";
-"settings.cache_folder.subtitle" = "Choose the folder to clean (e.g. ~/Library/Caches).";
+"settings.cache_folder.subtitle" = "Choose the folder to clean (e.g. /Users/yourname/Library/Caches).";
 "settings.cache_folder.current_label" = "Current folder:";
 "settings.cache_folder.unset" = "Not set";
 "settings.cache_folder.choose_button" = "Choose Folder";

@@ -7,7 +7,7 @@
 "settings.hotkey.button_need_modifier" = "需要 \u2318/\u2325/\u2303";
 
 "settings.cache_folder.group_title" = "快取資料夾";
-"settings.cache_folder.subtitle" = "請選擇要清除的資料夾（例如 ~/Library/Caches）。";
+"settings.cache_folder.subtitle" = "請選擇要清除的資料夾（例如 /Users/yourname/Library/Caches）。";
 "settings.cache_folder.current_label" = "目前資料夾:";
 "settings.cache_folder.unset" = "未設定";
 "settings.cache_folder.choose_button" = "選擇資料夾";
