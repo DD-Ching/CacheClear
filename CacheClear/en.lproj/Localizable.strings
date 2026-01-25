@@ -6,15 +6,29 @@
 "settings.hotkey.button_recording" = "Type shortcut...";
 "settings.hotkey.button_need_modifier" = "Requires \u2318/\u2325/\u2303";
 
+"settings.cache_folder.group_title" = "Cache Folder";
+"settings.cache_folder.subtitle" = "Choose the folder to clean (e.g. ~/Library/Caches).";
+"settings.cache_folder.current_label" = "Current folder:";
+"settings.cache_folder.unset" = "Not set";
+"settings.cache_folder.choose_button" = "Choose Folder";
+"settings.cache_folder.clear_button" = "Clear Selection";
+"settings.cache_folder.panel_title" = "Select Cache Folder";
+"settings.cache_folder.panel_message" = "Select the cache folder you want to clear.";
+
 "menu.cache_calculating" = "Cache: calculating...";
 "menu.clear_cache" = "Clear Cache";
 "menu.settings" = "Settings...";
 "menu.quit" = "Quit";
 "menu.cache_size_format" = "Cache: %@";
+"menu.cache_size_unavailable" = "Needs setup";
 
 "notification.cleared_format" = "Cleared %@";
 
 "settings.window.title" = "Settings";
+
+"error.cache_folder_not_set" = "Please choose a cache folder in Settings.";
+"error.cache_folder_access_denied" = "Unable to access the selected folder.";
+"alert.ok" = "OK";
 
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "Cleared";

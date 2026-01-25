@@ -10,6 +10,7 @@ import Carbon
 
 struct SettingsView: View {
     @ObservedObject private var hotKeyManager = HotKeyManager.shared
+    @ObservedObject private var cacheFolderManager = CacheFolderManager.shared
     @State private var isRecording = false
 
     var body: some View {
@@ -39,9 +40,36 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
             }
+
+            GroupBox(LocalizedStringKey("settings.cache_folder.group_title")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(LocalizedStringKey("settings.cache_folder.subtitle"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Text(LocalizedStringKey("settings.cache_folder.current_label"))
+                            .foregroundColor(.secondary)
+                        Text(cacheFolderManager.displayPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.caption)
+
+                    HStack {
+                        Button(LocalizedStringKey("settings.cache_folder.choose_button")) {
+                            cacheFolderManager.chooseFolder()
+                        }
+                        Button(LocalizedStringKey("settings.cache_folder.clear_button")) {
+                            cacheFolderManager.clearSelection()
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
         }
         .padding(20)
-        .frame(width: 300, height: 320)
+        .frame(width: 360, height: 420)
     }
 }
 

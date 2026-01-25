@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
+    private let cacheFolderManager = CacheFolderManager.shared
 
     @Published var cacheSize: String = "..."
     @Published var lastCleared: String = ""
@@ -26,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
         setupHotKey()
+        refreshCacheSize()
     }
 
     private func setupMenuBar() {
@@ -164,11 +166,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func refreshCacheSize() {
         DispatchQueue.global(qos: .background).async { [weak self] in
-            let size = self?.getCacheFolderSize() ?? 0
-            let formatted = self?.formatBytes(size) ?? "0 KB"
+            guard let self else { return }
+            let size = self.withCacheFolderAccess { self.getCacheFolderSize(at: $0) }
             DispatchQueue.main.async {
-                self?.cacheSize = formatted
-                self?.updateMenuSize(formatted)
+                if let size {
+                    let formatted = self.formatBytes(size)
+                    self.cacheSize = formatted
+                    self.updateMenuSize(formatted)
+                } else {
+                    let unavailable = NSLocalizedString("menu.cache_size_unavailable", comment: "")
+                    self.cacheSize = unavailable
+                    self.updateMenuSize(unavailable)
+                }
             }
         }
     }
@@ -251,26 +260,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     @objc func clearCache() {
-        let fileManager = FileManager.default
-        guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            return
-        }
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var clearedSize: UInt64 = 0
-
-            if let contents = try? fileManager.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: [.fileSizeKey]) {
-                for item in contents {
-                    if let size = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
-                        clearedSize += UInt64(size)
-                    }
-                    try? fileManager.removeItem(at: item)
+            guard let self else { return }
+            guard let clearedSize = self.withCacheFolderAccess({ self.clearCache(at: $0) }) else {
+                DispatchQueue.main.async {
+                    self.handleCacheFolderAccessFailure()
                 }
+                return
             }
 
             DispatchQueue.main.async {
-                self?.showNotification(clearedSize: clearedSize)
-                self?.refreshCacheSize()
+                self.showNotification(clearedSize: clearedSize)
+                self.refreshCacheSize()
             }
         }
     }
@@ -297,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if settingsWindow == nil {
             let contentView = SettingsView()
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 300, height: 320),
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 420),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -313,12 +314,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func getCacheFolderSize() -> UInt64 {
+    private func withCacheFolderAccess<T>(_ handler: (URL) -> T) -> T? {
+        if let result = cacheFolderManager.withSecurityScopedAccess(handler) {
+            return result
+        }
+        return nil
+    }
+
+    private func clearCache(at cachesURL: URL) -> UInt64 {
         let fileManager = FileManager.default
-        guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            return 0
+        var clearedSize: UInt64 = 0
+
+        if let contents = try? fileManager.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
+            for item in contents {
+                if let size = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
+                    clearedSize += UInt64(size)
+                }
+                try? fileManager.removeItem(at: item)
+            }
         }
 
+        return clearedSize
+    }
+
+    private func getCacheFolderSize(at cachesURL: URL) -> UInt64 {
+        let fileManager = FileManager.default
         var totalSize: UInt64 = 0
 
         if let enumerator = fileManager.enumerator(at: cachesURL, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
@@ -330,6 +350,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
 
         return totalSize
+    }
+
+    private func handleCacheFolderAccessFailure() {
+        openSettings()
+
+        let messageKey = cacheFolderManager.selectedURL == nil
+            ? "error.cache_folder_not_set"
+            : "error.cache_folder_access_denied"
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString(messageKey, comment: "")
+        alert.addButton(withTitle: NSLocalizedString("alert.ok", comment: ""))
+        alert.runModal()
     }
 
     private func formatBytes(_ bytes: UInt64) -> String {

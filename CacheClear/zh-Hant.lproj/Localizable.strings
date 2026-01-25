@@ -6,15 +6,29 @@
 "settings.hotkey.button_recording" = "輸入快捷鍵...";
 "settings.hotkey.button_need_modifier" = "需要 \u2318/\u2325/\u2303";
 
+"settings.cache_folder.group_title" = "快取資料夾";
+"settings.cache_folder.subtitle" = "請選擇要清除的資料夾（例如 ~/Library/Caches）。";
+"settings.cache_folder.current_label" = "目前資料夾:";
+"settings.cache_folder.unset" = "未設定";
+"settings.cache_folder.choose_button" = "選擇資料夾";
+"settings.cache_folder.clear_button" = "清除設定";
+"settings.cache_folder.panel_title" = "選擇快取資料夾";
+"settings.cache_folder.panel_message" = "請選擇要清除的快取資料夾。";
+
 "menu.cache_calculating" = "暫存: 計算中...";
 "menu.clear_cache" = "清除暫存";
 "menu.settings" = "設定...";
 "menu.quit" = "結束";
 "menu.cache_size_format" = "暫存: %@";
+"menu.cache_size_unavailable" = "需要設定";
 
 "notification.cleared_format" = "已清除 %@";
 
 "settings.window.title" = "設定";
+
+"error.cache_folder_not_set" = "請先在設定中選擇快取資料夾。";
+"error.cache_folder_access_denied" = "無法存取所選資料夾。";
+"alert.ok" = "好";
 
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "已清除";
