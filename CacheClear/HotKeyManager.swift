@@ -7,6 +7,7 @@
 
 import Carbon
 import AppKit
+import Combine
 
 class HotKeyManager: ObservableObject {
     static let shared = HotKeyManager()

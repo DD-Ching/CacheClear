@@ -7,6 +7,7 @@
 
 import AppKit
 import SwiftUI
+import Combine
 
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     static var shared: AppDelegate?
