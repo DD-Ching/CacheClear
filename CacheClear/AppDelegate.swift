@@ -262,7 +262,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @objc func clearCache() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            guard let clearedSize = self.withCacheFolderAccess({ self.clearCache(at: $0) }) else {
+            guard let clearedSize = self.withCacheFolderAccess({ self.clearCacheContents(at: $0) }) else {
                 DispatchQueue.main.async {
                     self.handleCacheFolderAccessFailure()
                 }
@@ -321,7 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return nil
     }
 
-    private func clearCache(at cachesURL: URL) -> UInt64 {
+    private func clearCacheContents(at cachesURL: URL) -> UInt64 {
         let fileManager = FileManager.default
         var clearedSize: UInt64 = 0
 
