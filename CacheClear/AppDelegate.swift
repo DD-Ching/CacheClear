@@ -9,23 +9,32 @@ import AppKit
 import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    static var shared: AppDelegate?
+
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
 
     @Published var cacheSize: String = "..."
     @Published var lastCleared: String = ""
 
+    private let customIconKey = "customIconPath"
+    private var normalIcon: NSImage?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         setupMenuBar()
         setupHotKey()
         refreshCacheSize()
+        loadCustomIcon()
     }
 
     private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "trash.circle", accessibilityDescription: "CacheClear")
+            button.image?.size = NSSize(width: 18, height: 18)
+            button.image?.isTemplate = true
         }
 
         let menu = NSMenu()
@@ -41,7 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         menu.addItem(NSMenuItem.separator())
 
-        let settingsItem = NSMenuItem(title: "設定快捷鍵...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "設定...", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -56,6 +65,70 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         HotKeyManager.shared.onHotKeyPressed = { [weak self] in
             self?.clearCache()
         }
+    }
+
+    // MARK: - Custom Icon
+
+    func loadCustomIcon() {
+        guard let path = UserDefaults.standard.string(forKey: customIconKey),
+              let image = NSImage(contentsOfFile: path) else {
+            return
+        }
+        setMenuBarIcon(image)
+    }
+
+    func setCustomIcon(from url: URL) {
+        guard let image = NSImage(contentsOf: url) else { return }
+
+        // 複製圖片到 App Support 資料夾
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appFolder = appSupport.appendingPathComponent("CacheClear", isDirectory: true)
+
+        try? fileManager.createDirectory(at: appFolder, withIntermediateDirectories: true)
+
+        let iconPath = appFolder.appendingPathComponent("custom_icon.png")
+        try? fileManager.removeItem(at: iconPath)
+        try? fileManager.copyItem(at: url, to: iconPath)
+
+        UserDefaults.standard.set(iconPath.path, forKey: customIconKey)
+        setMenuBarIcon(image)
+    }
+
+    func resetToDefaultIcon() {
+        UserDefaults.standard.removeObject(forKey: customIconKey)
+
+        if let button = statusItem.button {
+            let image = NSImage(systemSymbolName: "trash.circle", accessibilityDescription: "CacheClear")
+            image?.size = NSSize(width: 18, height: 18)
+            image?.isTemplate = true
+            button.image = image
+            normalIcon = image
+        }
+    }
+
+    private func setMenuBarIcon(_ image: NSImage) {
+        if let button = statusItem.button {
+            let resized = resizeImage(image, to: NSSize(width: 18, height: 18))
+            resized.isTemplate = false // 保留原始顏色
+            button.image = resized
+            normalIcon = resized
+        }
+    }
+
+    private func resizeImage(_ image: NSImage, to size: NSSize) -> NSImage {
+        let newImage = NSImage(size: size)
+        newImage.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: size),
+                   from: NSRect(origin: .zero, size: image.size),
+                   operation: .copy,
+                   fraction: 1.0)
+        newImage.unlockFocus()
+        return newImage
+    }
+
+    var hasCustomIcon: Bool {
+        UserDefaults.standard.string(forKey: customIconKey) != nil
     }
 
     func refreshCacheSize() {
@@ -107,7 +180,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         // Flash menu bar icon
         if let button = statusItem.button {
-            let originalImage = button.image
+            let originalImage = normalIcon ?? button.image
             button.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Cleared")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -120,12 +193,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if settingsWindow == nil {
             let contentView = SettingsView()
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 280, height: 180),
+                contentRect: NSRect(x: 0, y: 0, width: 300, height: 320),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
             )
-            window.title = "快捷鍵設定"
+            window.title = "設定"
             window.contentView = NSHostingView(rootView: contentView)
             window.center()
             window.isReleasedWhenClosed = false
