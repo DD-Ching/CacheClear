@@ -353,7 +353,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     private func handleCacheFolderAccessFailure() {
-        // Silently ignore when no cache folder is configured or access is denied.
+        if cacheFolderManager.selectedURL == nil {
+            openSettings()
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("error.cache_folder_not_set", comment: "")
+            alert.addButton(withTitle: NSLocalizedString("alert.ok", comment: ""))
+            alert.runModal()
+        }
+
         cacheSize = NSLocalizedString("menu.cache_size_unavailable", comment: "")
         updateMenuSize(cacheSize)
     }
