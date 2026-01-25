@@ -13,5 +13,8 @@ struct CacheClearApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 180, height: 140)
     }
 }
