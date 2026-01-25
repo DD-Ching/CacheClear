@@ -9,12 +9,12 @@ import SwiftUI
 
 @main
 struct CacheClearApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // Menu Bar App - 不顯示主視窗
+        Settings {
+            EmptyView()
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultSize(width: 180, height: 140)
     }
 }
