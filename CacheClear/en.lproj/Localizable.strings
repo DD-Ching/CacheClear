@@ -1,0 +1,20 @@
+"settings.hotkey.group_title" = "Global Hotkey";
+"settings.hotkey.subtitle" = "Press the shortcut to clear cache";
+"settings.hotkey.current_label" = "Current shortcut:";
+"settings.hotkey.unset" = "Not set";
+"settings.hotkey.button_default" = "Click to set";
+"settings.hotkey.button_recording" = "Type shortcut...";
+"settings.hotkey.button_need_modifier" = "Requires \u2318/\u2325/\u2303";
+
+"menu.cache_calculating" = "Cache: calculating...";
+"menu.clear_cache" = "Clear Cache";
+"menu.settings" = "Settings...";
+"menu.quit" = "Quit";
+"menu.cache_size_format" = "Cache: %@";
+
+"notification.cleared_format" = "Cleared %@";
+
+"settings.window.title" = "Settings";
+
+"accessibility.app_icon" = "CacheClear";
+"accessibility.cleared_icon" = "Cleared";

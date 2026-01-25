@@ -15,9 +15,9 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 16) {
             // 快捷鍵設定區
-            GroupBox("全域快捷鍵") {
+            GroupBox(LocalizedStringKey("settings.hotkey.group_title")) {
                 VStack(spacing: 8) {
-                    Text("按下快捷鍵即可清除暫存")
+                    Text(LocalizedStringKey("settings.hotkey.subtitle"))
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -30,9 +30,9 @@ struct SettingsView: View {
                     )
 
                     HStack {
-                        Text("目前快捷鍵:")
+                        Text(LocalizedStringKey("settings.hotkey.current_label"))
                             .foregroundColor(.secondary)
-                        Text(hotKeyManager.currentShortcut?.displayString ?? "未設定")
+                        Text(hotKeyManager.currentShortcut?.displayString ?? NSLocalizedString("settings.hotkey.unset", comment: ""))
                             .fontWeight(.medium)
                     }
                     .font(.caption)
@@ -81,7 +81,7 @@ class ShortcutRecorderNSView: NSView {
     private func setupButton() {
         button = NSButton(frame: bounds)
         button.bezelStyle = .rounded
-        button.title = "點擊設定"
+        button.title = NSLocalizedString("settings.hotkey.button_default", comment: "")
         button.target = self
         button.action = #selector(buttonClicked)
         button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -98,7 +98,7 @@ class ShortcutRecorderNSView: NSView {
 
     func updateDisplay(shortcut: HotKeyManager.KeyShortcut?) {
         if !isRecording {
-            button.title = shortcut?.displayString ?? "點擊設定"
+            button.title = shortcut?.displayString ?? NSLocalizedString("settings.hotkey.button_default", comment: "")
         }
     }
 
@@ -112,7 +112,7 @@ class ShortcutRecorderNSView: NSView {
 
     private func startRecording() {
         isRecording = true
-        button.title = "輸入快捷鍵..."
+        button.title = NSLocalizedString("settings.hotkey.button_recording", comment: "")
 
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
@@ -133,9 +133,9 @@ class ShortcutRecorderNSView: NSView {
 
         // 需要至少一個修飾鍵
         guard !modifiers.isEmpty else {
-            button.title = "需要 ⌘/⌥/⌃"
+            button.title = NSLocalizedString("settings.hotkey.button_need_modifier", comment: "")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                self?.button.title = "輸入快捷鍵..."
+                self?.button.title = NSLocalizedString("settings.hotkey.button_recording", comment: "")
             }
             return
         }

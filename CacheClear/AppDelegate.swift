@@ -32,31 +32,50 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "trash.circle", accessibilityDescription: "CacheClear")
+            button.image = NSImage(
+                systemSymbolName: "trash.circle",
+                accessibilityDescription: NSLocalizedString("accessibility.app_icon", comment: "")
+            )
             button.image?.size = NSSize(width: 18, height: 18)
             button.image?.isTemplate = true
         }
 
         let menu = NSMenu()
 
-        let sizeItem = NSMenuItem(title: "暫存: 計算中...", action: nil, keyEquivalent: "")
+        let sizeItem = NSMenuItem(
+            title: NSLocalizedString("menu.cache_calculating", comment: ""),
+            action: nil,
+            keyEquivalent: ""
+        )
         sizeItem.tag = 100
         menu.addItem(sizeItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let clearItem = NSMenuItem(title: "清除暫存", action: #selector(clearCache), keyEquivalent: "")
+        let clearItem = NSMenuItem(
+            title: NSLocalizedString("menu.clear_cache", comment: ""),
+            action: #selector(clearCache),
+            keyEquivalent: ""
+        )
         clearItem.tag = 101
         menu.addItem(clearItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let settingsItem = NSMenuItem(title: "設定...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(
+            title: NSLocalizedString("menu.settings", comment: ""),
+            action: #selector(openSettings),
+            keyEquivalent: ","
+        )
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "結束", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(
+            title: NSLocalizedString("menu.quit", comment: ""),
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -108,7 +127,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         UserDefaults.standard.removeObject(forKey: customIconKey)
 
         if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "trash.circle", accessibilityDescription: "CacheClear")
+            let image = NSImage(
+                systemSymbolName: "trash.circle",
+                accessibilityDescription: NSLocalizedString("accessibility.app_icon", comment: "")
+            )
             image?.size = NSSize(width: 18, height: 18)
             image?.isTemplate = true
             button.image = image
@@ -154,7 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private func updateMenuSize(_ size: String) {
         if let menu = statusItem.menu,
            let item = menu.item(withTag: 100) {
-            item.title = "暫存: \(size)"
+            item.title = String(format: NSLocalizedString("menu.cache_size_format", comment: ""), size)
         }
     }
 
@@ -255,12 +277,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private func showNotification(clearedSize: UInt64) {
         let formatted = formatBytes(clearedSize)
-        lastCleared = "已清除 \(formatted)"
+        lastCleared = String(format: NSLocalizedString("notification.cleared_format", comment: ""), formatted)
 
         // Flash menu bar icon
         if let button = statusItem.button {
             let originalImage = normalIcon ?? button.image
-            button.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Cleared")
+            button.image = NSImage(
+                systemSymbolName: "checkmark.circle.fill",
+                accessibilityDescription: NSLocalizedString("accessibility.cleared_icon", comment: "")
+            )
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 button.image = originalImage
@@ -277,7 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "設定"
+            window.title = NSLocalizedString("settings.window.title", comment: "")
             window.contentView = NSHostingView(rootView: contentView)
             window.center()
             window.isReleasedWhenClosed = false
