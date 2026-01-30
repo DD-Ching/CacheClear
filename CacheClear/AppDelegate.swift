@@ -10,7 +10,7 @@ import Carbon
 import SwiftUI
 import Combine
 
-class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDelegate {
     static var shared: AppDelegate?
 
     private var statusItem: NSStatusItem!
@@ -23,6 +23,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private let customIconKey = "customIconPath"
     private var normalIcon: NSImage?
+    private var cacheOperationState: CacheOperationState = .idle
+    private var currentRefreshToken: UUID?
+
+    private enum CacheOperationState {
+        case idle
+        case evaluating
+        case clearing
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
@@ -43,9 +51,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
 
         let menu = NSMenu()
+        menu.delegate = self
 
         let sizeItem = NSMenuItem(
-            title: NSLocalizedString("menu.cache_calculating", comment: ""),
+            title: NSLocalizedString("menu.cache_evaluating", comment: ""),
             action: nil,
             keyEquivalent: ""
         )
@@ -165,10 +174,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     func refreshCacheSize() {
+        if cacheOperationState == .clearing { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.setCacheOperationState(.evaluating)
+        }
+
+        let token = UUID()
+        currentRefreshToken = token
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
             let size = self.withCacheFolderAccess { self.getCacheFolderSize(at: $0) }
             DispatchQueue.main.async {
+                guard self.currentRefreshToken == token else { return }
+                guard self.cacheOperationState == .evaluating else { return }
                 if let size {
                     let formatted = self.formatBytes(size)
                     self.cacheSize = formatted
@@ -178,6 +196,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                     self.cacheSize = unavailable
                     self.updateMenuSize(unavailable)
                 }
+                self.setCacheOperationState(.idle)
             }
         }
     }
@@ -186,6 +205,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if let menu = statusItem.menu,
            let item = menu.item(withTag: 100) {
             item.title = String(format: NSLocalizedString("menu.cache_size_format", comment: ""), size)
+        }
+    }
+
+    private func updateMenuStatusTitle(_ localizedKey: String) {
+        if let menu = statusItem.menu,
+           let item = menu.item(withTag: 100) {
+            item.title = NSLocalizedString(localizedKey, comment: "")
+        }
+    }
+
+    private func setClearMenuEnabled(_ isEnabled: Bool) {
+        if let menu = statusItem.menu,
+           let item = menu.item(withTag: 101) {
+            item.isEnabled = isEnabled
+        }
+    }
+
+    private func setCacheOperationState(_ state: CacheOperationState) {
+        cacheOperationState = state
+        switch state {
+        case .idle:
+            setClearMenuEnabled(true)
+        case .evaluating:
+            updateMenuStatusTitle("menu.cache_evaluating")
+            setClearMenuEnabled(true)
+        case .clearing:
+            updateMenuStatusTitle("menu.cache_clearing")
+            setClearMenuEnabled(false)
         }
     }
 
@@ -259,17 +306,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return flags
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        if cacheOperationState == .clearing {
+            updateMenuStatusTitle("menu.cache_clearing")
+            return
+        }
+        refreshCacheSize()
+    }
+
     @objc func clearCache() {
+        DispatchQueue.main.async { [weak self] in
+            self?.setCacheOperationState(.clearing)
+        }
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             guard let clearedSize = self.withCacheFolderAccess({ self.clearCacheContents(at: $0) }) else {
                 DispatchQueue.main.async {
+                    self.setCacheOperationState(.idle)
                     self.handleCacheFolderAccessFailure()
                 }
                 return
             }
 
             DispatchQueue.main.async {
+                self.setCacheOperationState(.idle)
                 self.showNotification(clearedSize: clearedSize)
                 self.refreshCacheSize()
             }

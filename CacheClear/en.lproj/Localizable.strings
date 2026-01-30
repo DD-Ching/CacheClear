@@ -16,6 +16,8 @@
 "settings.cache_folder.panel_message" = "Select the cache folder you want to clear.";
 
 "menu.cache_calculating" = "Cache: calculating...";
+"menu.cache_evaluating" = "Cache: evaluating...";
+"menu.cache_clearing" = "Cache: clearing...";
 "menu.clear_cache" = "Clear Cache";
 "menu.settings" = "Settings...";
 "menu.quit" = "Quit";

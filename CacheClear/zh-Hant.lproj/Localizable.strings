@@ -16,6 +16,8 @@
 "settings.cache_folder.panel_message" = "請選擇要清除的快取資料夾。";
 
 "menu.cache_calculating" = "暫存: 計算中...";
+"menu.cache_evaluating" = "暫存: 評估中...";
+"menu.cache_clearing" = "暫存: 清除中...";
 "menu.clear_cache" = "清除暫存";
 "menu.settings" = "設定...";
 "menu.quit" = "結束";
