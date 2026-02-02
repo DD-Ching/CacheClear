@@ -18,7 +18,9 @@
 "menu.cache_calculating" = "Cache: calculating...";
 "menu.cache_evaluating" = "Cache: evaluating...";
 "menu.cache_clearing" = "Cache: clearing...";
+"menu.cache_deep_cleaning" = "Cache: deep cleaning...";
 "menu.clear_cache" = "Clear Cache";
+"menu.deep_clean" = "Deep Clean";
 "menu.settings" = "Settings...";
 "menu.quit" = "Quit";
 "menu.cache_size_format" = "Cache: %@";
@@ -32,5 +34,11 @@
 "error.cache_folder_access_denied" = "Unable to access the selected folder.";
 "alert.ok" = "OK";
 
+"deep_clean.alert.title" = "Deep Clean";
+"deep_clean.alert.message" = "This will remove Xcode DerivedData, iOS Simulators, Device Support, Archives, SwiftPM/CocoaPods caches, and run Homebrew/npm cleanup. This may take time and cannot be undone. The next launch may take longer.";
+"deep_clean.alert.confirm" = "Deep Clean";
+"deep_clean.alert.cancel" = "Cancel";
+
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "Cleared";
+"accessibility.deep_clean_done" = "Deep Clean Complete";

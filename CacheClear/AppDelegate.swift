@@ -9,6 +9,7 @@ import AppKit
 import Carbon
 import SwiftUI
 import Combine
+import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDelegate {
     static var shared: AppDelegate?
@@ -25,17 +26,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
     private var normalIcon: NSImage?
     private var cacheOperationState: CacheOperationState = .idle
     private var currentRefreshToken: UUID?
+    private let deepCleanMenuTag = 102
 
     private enum CacheOperationState {
         case idle
         case evaluating
         case clearing
+        case deepCleaning
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        enableLaunchAtLogin()
         setupMenuBar()
         setupHotKey()
         refreshCacheSize()
+    }
+
+    private func enableLaunchAtLogin() {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            guard service.status != .enabled else { return }
+            do {
+                try service.register()
+            } catch {
+                NSLog("Failed to enable launch at login: \(error)")
+            }
+        }
     }
 
     private func setupMenuBar() {
@@ -70,6 +86,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         )
         clearItem.tag = 101
         menu.addItem(clearItem)
+
+        let deepCleanItem = NSMenuItem(
+            title: NSLocalizedString("menu.deep_clean", comment: ""),
+            action: #selector(deepClean),
+            keyEquivalent: ""
+        )
+        deepCleanItem.tag = deepCleanMenuTag
+        menu.addItem(deepCleanItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -175,8 +199,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
 
     func refreshCacheSize() {
         if cacheOperationState == .clearing { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.setCacheOperationState(.evaluating)
+        if Thread.isMainThread {
+            setCacheOperationState(.evaluating)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setCacheOperationState(.evaluating)
+            }
         }
 
         let token = UUID()
@@ -222,17 +250,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         }
     }
 
+    private func setDeepCleanMenuEnabled(_ isEnabled: Bool) {
+        if let menu = statusItem.menu,
+           let item = menu.item(withTag: deepCleanMenuTag) {
+            item.isEnabled = isEnabled
+        }
+    }
+
     private func setCacheOperationState(_ state: CacheOperationState) {
         cacheOperationState = state
         switch state {
         case .idle:
             setClearMenuEnabled(true)
+            setDeepCleanMenuEnabled(true)
+            updateClearMenuSpinner(isSpinning: false)
+            updateDeepCleanMenuSpinner(isSpinning: false)
         case .evaluating:
             updateMenuStatusTitle("menu.cache_evaluating")
             setClearMenuEnabled(true)
+            setDeepCleanMenuEnabled(true)
+            updateClearMenuSpinner(isSpinning: false)
+            updateDeepCleanMenuSpinner(isSpinning: false)
         case .clearing:
             updateMenuStatusTitle("menu.cache_clearing")
             setClearMenuEnabled(false)
+            setDeepCleanMenuEnabled(false)
+            updateClearMenuSpinner(isSpinning: true)
+            updateDeepCleanMenuSpinner(isSpinning: false)
+        case .deepCleaning:
+            updateMenuStatusTitle("menu.cache_deep_cleaning")
+            setClearMenuEnabled(false)
+            setDeepCleanMenuEnabled(false)
+            updateClearMenuSpinner(isSpinning: false)
+            updateDeepCleanMenuSpinner(isSpinning: true)
         }
     }
 
@@ -251,6 +301,61 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
 
         item.keyEquivalent = keyEquivalent
         item.keyEquivalentModifierMask = modifierFlags(from: shortcut.modifiers)
+    }
+
+    private func updateClearMenuSpinner(isSpinning: Bool) {
+        guard let menu = statusItem.menu,
+              let item = menu.item(withTag: 101) else {
+            return
+        }
+        updateMenuItemView(item, titleKey: "menu.clear_cache", showsSpinner: isSpinning)
+    }
+
+    private func updateDeepCleanMenuSpinner(isSpinning: Bool) {
+        guard let menu = statusItem.menu,
+              let item = menu.item(withTag: deepCleanMenuTag) else {
+            return
+        }
+        updateMenuItemView(item, titleKey: "menu.deep_clean", showsSpinner: isSpinning)
+    }
+
+    private func updateMenuItemView(_ item: NSMenuItem, titleKey: String, showsSpinner: Bool) {
+        let title = NSLocalizedString(titleKey, comment: "")
+        if showsSpinner {
+            item.view = makeMenuItemSpinnerView(title: title, isEnabled: item.isEnabled)
+            item.title = title
+        } else {
+            item.view = nil
+            item.title = title
+        }
+    }
+
+    private func makeMenuItemSpinnerView(title: String, isEnabled: Bool) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.font = NSFont.menuFont(ofSize: NSFont.systemFontSize)
+        label.textColor = isEnabled ? NSColor.labelColor : NSColor.secondaryLabelColor
+
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isIndeterminate = true
+        spinner.startAnimation(nil)
+
+        let stack = NSStackView(views: [label, spinner])
+        stack.alignment = .centerY
+        stack.spacing = 6
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 22))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -6),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+        ])
+
+        return container
     }
 
     private func keyEquivalentString(for keyCode: UInt32) -> String? {
@@ -307,14 +412,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        if cacheOperationState == .clearing {
+        switch cacheOperationState {
+        case .clearing:
             updateMenuStatusTitle("menu.cache_clearing")
             return
+        case .evaluating:
+            updateMenuStatusTitle("menu.cache_evaluating")
+            return
+        case .deepCleaning:
+            updateMenuStatusTitle("menu.cache_deep_cleaning")
+            return
+        case .idle:
+            break
         }
+
         refreshCacheSize()
     }
 
     @objc func clearCache() {
+        if cacheOperationState == .deepCleaning { return }
         DispatchQueue.main.async { [weak self] in
             self?.setCacheOperationState(.clearing)
         }
@@ -337,22 +453,59 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         }
     }
 
+    @objc func deepClean() {
+        if cacheOperationState == .clearing || cacheOperationState == .deepCleaning { return }
+
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("deep_clean.alert.title", comment: "")
+        alert.informativeText = NSLocalizedString("deep_clean.alert.message", comment: "")
+        alert.addButton(withTitle: NSLocalizedString("deep_clean.alert.confirm", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("deep_clean.alert.cancel", comment: ""))
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.setCacheOperationState(.deepCleaning)
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            let fileManager = FileManager.default
+            let homeURL = fileManager.homeDirectoryForCurrentUser
+
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Developer/Xcode/DerivedData"))
+            self.runProcess("/usr/bin/xcrun", arguments: ["simctl", "delete", "unavailable"])
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Developer/CoreSimulator"))
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport"))
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Developer/Xcode/Archives"))
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Caches/org.swift.swiftpm"))
+            self.removeItemIfExists(homeURL.appendingPathComponent("Library/Caches/CocoaPods"))
+
+            self.runShellCommand("yes | brew cleanup -s")
+            self.runShellCommand("yes | brew autoremove")
+            self.runShellCommand("npm cache clean --force")
+
+            DispatchQueue.main.async {
+                self.setCacheOperationState(.idle)
+                self.flashMenuBarIcon(
+                    systemSymbolName: "checkmark.circle.fill",
+                    accessibilityKey: "accessibility.deep_clean_done"
+                )
+                self.refreshCacheSize()
+            }
+        }
+    }
+
     private func showNotification(clearedSize: UInt64) {
         let formatted = formatBytes(clearedSize)
         lastCleared = String(format: NSLocalizedString("notification.cleared_format", comment: ""), formatted)
 
-        // Flash menu bar icon
-        if let button = statusItem.button {
-            let originalImage = normalIcon ?? button.image
-            button.image = NSImage(
-                systemSymbolName: "checkmark.circle.fill",
-                accessibilityDescription: NSLocalizedString("accessibility.cleared_icon", comment: "")
-            )
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                button.image = originalImage
-            }
-        }
+        flashMenuBarIcon(
+            systemSymbolName: "checkmark.circle.fill",
+            accessibilityKey: "accessibility.cleared_icon"
+        )
     }
 
     @objc func openSettings() {
@@ -437,6 +590,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             return String(format: "%.1f MB", mb)
         } else {
             return String(format: "%.0f KB", kb)
+        }
+    }
+
+    private func flashMenuBarIcon(systemSymbolName: String, accessibilityKey: String) {
+        if let button = statusItem.button {
+            let originalImage = normalIcon ?? button.image
+            button.image = NSImage(
+                systemSymbolName: systemSymbolName,
+                accessibilityDescription: NSLocalizedString(accessibilityKey, comment: "")
+            )
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                button.image = originalImage
+            }
+        }
+    }
+
+    private func removeItemIfExists(_ url: URL) {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            NSLog("Deep clean failed to remove \(url.path): \(error)")
+        }
+    }
+
+    private func runProcess(_ launchPath: String, arguments: [String]) {
+        let process = Process()
+        process.launchPath = launchPath
+        process.arguments = arguments
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            NSLog("Deep clean failed to run \(launchPath): \(error)")
+        }
+    }
+
+    private func runShellCommand(_ command: String) {
+        let process = Process()
+        process.launchPath = "/bin/zsh"
+        process.arguments = ["-lc", command]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            NSLog("Deep clean failed to run shell command: \(command) error: \(error)")
         }
     }
 }

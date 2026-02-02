@@ -18,7 +18,9 @@
 "menu.cache_calculating" = "暫存: 計算中...";
 "menu.cache_evaluating" = "暫存: 評估中...";
 "menu.cache_clearing" = "暫存: 清除中...";
+"menu.cache_deep_cleaning" = "暫存: 深度清理中...";
 "menu.clear_cache" = "清除暫存";
+"menu.deep_clean" = "深度清理";
 "menu.settings" = "設定...";
 "menu.quit" = "結束";
 "menu.cache_size_format" = "暫存: %@";
@@ -32,5 +34,11 @@
 "error.cache_folder_access_denied" = "無法存取所選資料夾。";
 "alert.ok" = "好";
 
+"deep_clean.alert.title" = "深度清理";
+"deep_clean.alert.message" = "將清除 Xcode DerivedData、iOS 模擬器、Device Support、Archives、SwiftPM/CocoaPods 快取，並執行 Homebrew 與 npm 清理。此操作可能耗時且不可復原。下次開啟可能會更久。";
+"deep_clean.alert.confirm" = "開始清理";
+"deep_clean.alert.cancel" = "取消";
+
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "已清除";
+"accessibility.deep_clean_done" = "深度清理完成";
