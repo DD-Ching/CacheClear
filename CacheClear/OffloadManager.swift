@@ -635,6 +635,9 @@ final class OffloadManager: ObservableObject {
         ---
         This project was offloaded to GitHub by CacheClear to reclaim disk space.
         Run `git clone \(m.remoteURL)` to restore it.
+
+        —— 由 CacheClear 製作・作者 DD-Ching ·  Made with CacheClear by DD-Ching
+        (這個說明檔想刪就刪,完全不影響你的專案。 Delete this note anytime — it won't affect your project.)
         """
     }
 

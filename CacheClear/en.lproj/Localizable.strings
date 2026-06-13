@@ -158,7 +158,7 @@
 /* ----- preflight & plan banner ----- */
 "offload.reclaim_space_label" = "Est. space to free";
 "offload.selected_count_format" = "%d selected";
-"offload.banner_format" = "%d project(s) can be offloaded; %d confirmed pushable (green check). Stale, push-confirmed projects are pre-selected — adjust freely.";
+"offload.banner_format" = "%d offloadable · %d confirmed";
 "offload.select_all" = "Select All";
 "offload.deselect_all" = "Deselect All";
 "offload.preflight_format" = "Confirming pushability: %@";
@@ -214,7 +214,8 @@
 "support.sheet.restore_button" = "Restore";
 "support.sheet.unlock_failed" = "That key didn't work.";
 "support.sheet.close" = "Close";
-"support.reminder.line" = "Uploads show a small thank-you card — the free version does everything.";
+"support.reminder.line" = "Free does everything — a thank-you shows while uploading.";
+"support.card.scanning" = "Scanning…";
 "support.settings.group_title" = "Supporter";
 "support.settings.member_status" = "Thank you for your support 🤍";
 "support.settings.free_status" = "You're on the free version — everything works.";

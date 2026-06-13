@@ -21,8 +21,15 @@ struct SupporterCard: View {
     @State private var heartScale: CGFloat = 1.0
     private let rotate = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
-    /// The repo currently being pushed, read straight from the live phase.
-    private var repoName: String? {
+    /// The verb for the current phase: scanning vs uploading.
+    private var actionKey: String {
+        if case .scanning = manager.phase { return "support.card.scanning" }
+        return "support.card.uploading"
+    }
+
+    /// The live detail line: the scanning status, or the repo being pushed.
+    private var detailLine: String? {
+        if !manager.statusLine.isEmpty { return manager.statusLine }
         if case .offloading(let r, _) = manager.phase { return r }
         return nil
     }
@@ -31,14 +38,14 @@ struct SupporterCard: View {
         VStack(spacing: 12) {
             ProgressView()
 
-            // One short line, alternating Uploading… ⇄ thank-you (no long sentence).
-            Text(LocalizedStringKey(showThanks ? "support.card.thanks" : "support.card.uploading"))
+            // One short line, alternating action ⇄ thank-you (no long sentence).
+            Text(LocalizedStringKey(showThanks ? "support.card.thanks" : actionKey))
                 .font(.headline)
                 .id(showThanks)
                 .transition(.opacity)
 
-            if let repoName {
-                Text(repoName)
+            if let detailLine {
+                Text(detailLine)
                     .font(.caption).foregroundColor(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }

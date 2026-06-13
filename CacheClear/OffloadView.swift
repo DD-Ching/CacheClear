@@ -418,7 +418,7 @@ struct OffloadView: View {
         ZStack {
             Color.black.opacity(0.25).ignoresSafeArea()
             Group {
-                if isUploadingPush && !supporter.isSupporter {
+                if isCardMoment && !supporter.isSupporter {
                     SupporterCard { showSupporterSheet = true }
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 } else {
@@ -428,7 +428,7 @@ struct OffloadView: View {
                         if !manager.statusLine.isEmpty {
                             Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
                         }
-                        if supporter.isSupporter && isUploadingPush {
+                        if supporter.isSupporter && isCardMoment {
                             Text(LocalizedStringKey("support.card.thanks_member"))
                                 .font(.caption).foregroundColor(.secondary)
                         }
@@ -438,14 +438,17 @@ struct OffloadView: View {
             }
             .background(.regularMaterial)
             .cornerRadius(12)
-            .animation(.easeInOut(duration: 0.25), value: isUploadingPush)
+            .animation(.easeInOut(duration: 0.25), value: isCardMoment)
         }
     }
 
-    /// True only during the live `git push` step — the moment the support card appears.
-    private var isUploadingPush: Bool {
-        if case .offloading(_, .push) = manager.phase { return true }
-        return false
+    /// Moments worth showing the supporter card: the live scan and the live push.
+    private var isCardMoment: Bool {
+        switch manager.phase {
+        case .scanning: return true
+        case .offloading(_, .push): return true
+        default: return false
+        }
     }
 
     private var phaseText: String {
@@ -481,16 +484,14 @@ struct OffloadView: View {
     private func preflightBadge(_ p: PreflightStatus) -> some View {
         switch p {
         case .confirmed:
-            Label(LocalizedStringKey("offload.preflight.confirmed"), systemImage: "checkmark.seal.fill")
-                .labelStyle(.titleAndIcon).font(.caption2).foregroundColor(.green)
+            Image(systemName: "checkmark.seal.fill").font(.caption).foregroundColor(.green)
+                .help(LocalizedStringKey("offload.preflight.confirmed"))
         case .willCreateRepo:
-            Label(LocalizedStringKey("offload.preflight.will_create"), systemImage: "plus.circle")
-                .labelStyle(.titleAndIcon).font(.caption2).foregroundColor(.orange)
+            Image(systemName: "plus.circle").font(.caption).foregroundColor(.orange)
+                .help(LocalizedStringKey("offload.preflight.will_create"))
         case .checking:
-            HStack(spacing: 3) {
-                ProgressView().controlSize(.small)
-                Text(LocalizedStringKey("offload.preflight.checking")).font(.caption2).foregroundColor(.secondary)
-            }
+            ProgressView().controlSize(.small)
+                .help(LocalizedStringKey("offload.preflight.checking"))
         case .notChecked, .problem:
             EmptyView()
         }

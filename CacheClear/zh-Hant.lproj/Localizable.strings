@@ -158,7 +158,7 @@
 /* ----- preflight & plan banner ----- */
 "offload.reclaim_space_label" = "預計清出空間";
 "offload.selected_count_format" = "已選 %d 個專案";
-"offload.banner_format" = "可卸載 %d 個專案，其中 %d 個已確認可推送（綠勾）。系統已自動勾選閒置久且確認可推送的專案，你可以自由調整。";
+"offload.banner_format" = "可卸載 %d・已確認 %d";
 "offload.select_all" = "全選";
 "offload.deselect_all" = "全不選";
 "offload.preflight_format" = "確認可推送中：%@";
@@ -214,7 +214,8 @@
 "support.sheet.restore_button" = "還原";
 "support.sheet.unlock_failed" = "這個金鑰無法使用";
 "support.sheet.close" = "關閉";
-"support.reminder.line" = "上傳時會出現一張小卡片謝謝支持者,免費版功能完全相同";
+"support.reminder.line" = "免費版功能不變,上傳時會出現感謝小卡";
+"support.card.scanning" = "掃描中…";
 "support.settings.group_title" = "支持者";
 "support.settings.member_status" = "謝謝您的支持 🤍";
 "support.settings.free_status" = "您用的是免費版,功能完全相同";
