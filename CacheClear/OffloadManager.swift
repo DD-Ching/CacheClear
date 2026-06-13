@@ -65,18 +65,23 @@ final class OffloadManager: ObservableObject {
     }
 
     @Published var rootURL: URL?
+    @Published var scanScopeLabel: String = ""
     @Published var repos: [ProjectRepo] = []
     @Published var phase: Phase = .idle
     @Published var statusLine: String = ""
     @Published var lastError: String?
     @Published var results: [String: RepoResult] = [:]
     @Published var offloads: [OffloadManifest] = []
+    @Published var mapItems: [MapItem] = []
+    @Published var sessionReclaimed: UInt64 = 0
 
     private let runner = GitCommandRunner.shared
     private let settings = OffloadSettings.shared
     private let advisor: OffloadAdvisor = AdvisorFactory.make()
     private let fm = FileManager.default
     private var scanGeneration = 0
+    private var sizeCache: [String: UInt64] = [:]
+    private var mapTask: Task<Void, Never>?
 
     var isBusy: Bool { phase != .idle }
     var isModelBackedAdvisor: Bool { AdvisorFactory.isModelBacked }
@@ -100,7 +105,38 @@ final class OffloadManager: ObservableObject {
     func setRoot(_ url: URL) {
         rootURL = url
         settings.projectsRootPath = url.path
-        Task { await scan() }
+        Task { await scan(roots: [url], label: url.path) }
+    }
+
+    /// Common places projects/repos live, used on first open so the user doesn't
+    /// have to pick a folder. Each is scanned at depth-1 (immediate children),
+    /// so e.g. a repo sitting directly in the home folder is found, but not the
+    /// entire home tree. Only locations that actually exist are returned.
+    func defaultScanRoots() -> [URL] {
+        let home = fm.homeDirectoryForCurrentUser
+        // Documents is intentionally omitted from the auto-default to cut the
+        // number of one-time macOS permission prompts; it can be added via
+        // "Choose Folder". Developer/Projects/Sites/Code are not TCC-protected.
+        let candidates = [
+            home,
+            home.appendingPathComponent("Desktop"),
+            home.appendingPathComponent("Downloads"),
+            home.appendingPathComponent("Developer"),
+            home.appendingPathComponent("Projects"),
+            home.appendingPathComponent("Sites"),
+            home.appendingPathComponent("Code"),
+            home.appendingPathComponent("repos"),
+        ]
+        return candidates.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+    }
+
+    func scanDefaults() async {
+        rootURL = nil
+        settings.projectsRootPath = nil
+        await scan(roots: defaultScanRoots(),
+                   label: NSLocalizedString("offload.scope.defaults", comment: ""))
     }
 
     func toggle(_ id: String) {
@@ -128,6 +164,20 @@ final class OffloadManager: ObservableObject {
         for i in repos.indices { repos[i].isSelected = false }
     }
 
+    /// Bulk-select by size: every eligible repo ≥ minBytes is selected, smaller
+    /// ones deselected. Drives the size-threshold slider; manual toggles run after.
+    func selectBySizeThreshold(minBytes: UInt64) {
+        for i in repos.indices where repos[i].report.status.isManuallySelectable && results[repos[i].id] == nil {
+            repos[i].isSelected = repos[i].sizeBytes >= minBytes
+        }
+    }
+
+    /// Eligible repos (manually selectable, not yet offloaded), biggest first.
+    var eligibleRepos: [ProjectRepo] {
+        repos.filter { $0.report.status.isManuallySelectable && results[$0.id] == nil }
+             .sorted { $0.sizeBytes > $1.sizeBytes }
+    }
+
     var eligibleCount: Int {
         repos.filter { $0.report.status.isManuallySelectable && results[$0.id] == nil }.count
     }
@@ -137,23 +187,35 @@ final class OffloadManager: ObservableObject {
 
     // MARK: - Scan & classify
 
+    /// Rescan: re-uses the chosen folder, or the default locations if none chosen.
     func scan() async {
-        guard let root = rootURL else { return }
+        if let r = rootURL {
+            await scan(roots: [r], label: r.path)
+        } else {
+            await scanDefaults()
+        }
+    }
+
+    private func scan(roots: [URL], label: String) async {
         scanGeneration += 1
         let gen = scanGeneration
+        scanScopeLabel = label
         phase = .scanning
         results = [:]
         repos = []
-        let paths = discoverRepoPaths(under: root)
+        var seen = Set<String>()
         var found: [ProjectRepo] = []
-        for p in paths {
-            statusLine = String(format: NSLocalizedString("offload.scanning_format", comment: ""),
-                                (p as NSString).lastPathComponent)
-            if let repo = await inspect(path: p, root: root) {
+        for root in roots {
+            for p in discoverRepoPaths(under: root) {
+                statusLine = String(format: NSLocalizedString("offload.scanning_format", comment: ""),
+                                    (p as NSString).lastPathComponent)
+                guard let repo = await inspect(path: p, root: root) else { continue }
+                guard !seen.contains(repo.id) else { continue }
+                seen.insert(repo.id)
                 found.append(repo)
             }
         }
-        found.sort { ($0.ageDays ?? -1) > ($1.ageDays ?? -1) }
+        found.sort { $0.sizeBytes > $1.sizeBytes }   // biggest first
         repos = found
         autoSelect()
         statusLine = ""
@@ -610,6 +672,115 @@ final class OffloadManager: ObservableObject {
         let all = loadIndex().filter { $0.isStillOffloaded }
         saveIndex(all)
         offloads = all.sorted { $0.offloadedAt > $1.offloadedAt }
+    }
+
+    // MARK: - Map (treemap of disk usage)
+
+    func startMapBuild() {
+        mapTask?.cancel()
+        let gen = scanGeneration
+        mapTask = Task { await buildMap(gen: gen) }
+    }
+
+    func stopMapBuild() {
+        mapTask?.cancel()
+        mapTask = nil
+    }
+
+    private struct JunkCandidate {
+        let url: URL
+        let auto: Bool
+        let ownerRepoID: String?   // green block to subtract from (junk inside a repo)
+    }
+
+    private func buildMap(gen: Int) async {
+        // 1) Repos as green blocks (sizes already known) — render instantly.
+        var items: [MapItem] = repos.map { r in
+            MapItem(id: r.id, name: r.name, path: r.path, bytes: r.sizeBytes,
+                    kind: .repo, repoSelectable: r.report.status.isManuallySelectable)
+        }
+        mapItems = items.sorted { $0.bytes > $1.bytes }
+        guard gen == scanGeneration else { return }
+
+        // 2) Gather junk candidates.
+        let home = fm.homeDirectoryForCurrentUser
+        let repoPaths = Set(repos.map { $0.path })
+        var candidates: [JunkCandidate] = []
+
+        // 2a) global caches by absolute path
+        for g in JunkClassifier.globalAutoDeletable(home: home) where fm.fileExists(atPath: g.path) {
+            candidates.append(JunkCandidate(url: g, auto: true, ownerRepoID: nil))
+        }
+        // 2b) loose junk directly under each scan root (depth-1), not a repo itself
+        let roots = rootURL.map { [$0] } ?? defaultScanRoots()
+        for root in roots {
+            let children = (try? fm.contentsOfDirectory(at: root,
+                                                        includingPropertiesForKeys: [.isDirectoryKey],
+                                                        options: [.skipsHiddenFiles])) ?? []
+            for child in children {
+                guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                guard !repoPaths.contains(child.path) else { continue }
+                appendVerdict(child, ignored: false, owner: nil, to: &candidates)
+            }
+        }
+        // 2c) junk inside known repos — reuse the ignored dirs already collected.
+        for r in repos {
+            for ig in r.report.ignoredFiles where ig.path.hasSuffix("/") {
+                let rel = String(ig.path.dropLast())
+                let url = URL(fileURLWithPath: r.path).appendingPathComponent(rel)
+                appendVerdict(url, ignored: true, owner: r.id, to: &candidates)
+            }
+        }
+
+        // 3) Size + threshold, publishing incrementally.
+        let autoFloor: UInt64 = 50 * 1024 * 1024
+        let showFloor: UInt64 = 200 * 1024 * 1024
+        for c in candidates {
+            guard gen == scanGeneration else { return }
+            let size: UInt64
+            if let cached = sizeCache[c.url.path] {
+                size = cached
+            } else {
+                size = await runner.diskUsageBytes(c.url.path)
+                sizeCache[c.url.path] = size
+            }
+            guard gen == scanGeneration else { return }
+            let floor = c.auto ? autoFloor : showFloor
+            guard size >= floor else { continue }
+
+            // Avoid double-counting: shrink the owning repo's green block.
+            if let owner = c.ownerRepoID, let gi = items.firstIndex(where: { $0.id == owner }) {
+                items[gi].bytes = items[gi].bytes > size ? items[gi].bytes - size : 0
+            }
+            items.append(MapItem(id: c.url.path, name: c.url.lastPathComponent, path: c.url.path,
+                                 bytes: size, kind: c.auto ? .junkAuto : .junkShowOnly))
+            mapItems = items.sorted { $0.bytes > $1.bytes }
+        }
+    }
+
+    private func appendVerdict(_ url: URL, ignored: Bool, owner: String?, to candidates: inout [JunkCandidate]) {
+        let inICloud = url.path.contains("Mobile Documents")
+        switch JunkClassifier.verdict(for: url, gitIgnored: ignored, gitTracked: false, inICloud: inICloud) {
+        case .autoDeletable: candidates.append(JunkCandidate(url: url, auto: true, ownerRepoID: owner))
+        case .showOnly:      candidates.append(JunkCandidate(url: url, auto: false, ownerRepoID: owner))
+        case .notJunk:       break
+        }
+    }
+
+    /// One-click junk deletion. ALWAYS to Trash (recoverable) — deliberately
+    /// ignores OffloadSettings.permanentDelete, which only governs verified offload.
+    func trashJunk(_ item: MapItem) async {
+        guard item.kind == .junkAuto else { return }
+        let url = URL(fileURLWithPath: item.path)
+        do {
+            var resulting: NSURL?
+            try fm.trashItem(at: url, resultingItemURL: &resulting)
+            sessionReclaimed += item.bytes
+            sizeCache.removeValue(forKey: item.path)
+            mapItems.removeAll { $0.id == item.id }
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     // MARK: - Restore

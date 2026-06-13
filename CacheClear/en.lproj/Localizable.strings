@@ -167,3 +167,32 @@
 "offload.preflight.will_create" = "will create repo";
 "offload.preflight.unreachable" = "Remote unreachable or auth failed";
 "offload.preflight.behind" = "Local is behind remote; merge first";
+
+/* ----- default scan locations ----- */
+"offload.scope.defaults" = "Default locations (Home, Desktop, Downloads, Documents…)";
+"offload.scan_defaults" = "Scan default locations";
+
+/* ----- Map tab ----- */
+"offload.mode.map" = "Map";
+"map.computing" = "Measuring folder sizes…";
+"map.legend.repo" = "Offloadable repo";
+"map.legend.junk" = "Junk (clearable)";
+"map.legend.regen" = "Regenerable (manual)";
+"map.legend.other" = "Other";
+"map.mapped_format" = "%d items · %@ total";
+"map.reclaimed_format" = "Reclaimed this session: %@";
+"map.menu.reveal" = "Reveal in Finder";
+"map.menu.select" = "Add to offload";
+"map.menu.deselect" = "Remove from offload";
+"map.trash.title" = "Delete \"%@\"?";
+"map.trash.message" = "This is a regenerable cache (up to ~%@). It will be moved to the Trash — rebuild it when needed, or restore it from the Trash.";
+"map.trash.confirm" = "Move to Trash";
+
+/* ----- size slider & sections ----- */
+"slider.title" = "Quick-select by size";
+"slider.summary_format" = "%d selected (≥ %@)";
+"slider.smaller" = "Smaller";
+"slider.bigger" = "Bigger";
+"offload.section.ready" = "Ready to offload";
+"offload.section.attention" = "Needs attention";
+"offload.section.done" = "Offloaded";

@@ -19,9 +19,15 @@ struct OffloadView: View {
     @State private var adviceRepo: ProjectRepo?
 
     enum Mode: String, CaseIterable, Identifiable {
-        case offload, restore
+        case offload, restore, map
         var id: String { rawValue }
-        var titleKey: String { self == .offload ? "offload.mode.offload" : "offload.mode.restore" }
+        var titleKey: String {
+            switch self {
+            case .offload: return "offload.mode.offload"
+            case .restore: return "offload.mode.restore"
+            case .map: return "offload.mode.map"
+            }
+        }
     }
 
     var body: some View {
@@ -36,7 +42,9 @@ struct OffloadView: View {
             Divider()
 
             Group {
-                if mode == .offload { offloadPane } else { restorePane }
+                if mode == .offload { offloadPane }
+                else if mode == .restore { restorePane }
+                else { mapPane }
             }
         }
         .frame(minWidth: 700, minHeight: 500)
@@ -45,6 +53,12 @@ struct OffloadView: View {
             AdviceSheet(repo: repo) { action in handle(action, for: repo) }
         }
         .onAppear { if mode == .restore { Task { await manager.refreshOffloads() } } }
+        .task {
+            // First open with nothing chosen → scan common locations automatically.
+            if manager.rootURL == nil && manager.repos.isEmpty && !manager.isBusy {
+                await manager.scanDefaults()
+            }
+        }
     }
 
     // MARK: - Offload pane
@@ -57,23 +71,90 @@ struct OffloadView: View {
             if manager.repos.isEmpty {
                 emptyState(manager.rootURL == nil ? "offload.empty.no_root" : "offload.empty.no_repos")
             } else {
-                ScrollView { LazyVStack(spacing: 0) { ForEach(manager.repos) { repoRow($0) } } }
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        if manager.eligibleRepos.count > 1 {
+                            SizeThresholdSlider(repos: manager.eligibleRepos) { cutoff in
+                                manager.selectBySizeThreshold(minBytes: cutoff)
+                            }
+                            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 2)
+                        }
+                        ForEach(sections) { section in
+                            Section {
+                                ForEach(section.repos) { repoRow($0) }
+                            } header: {
+                                sectionHeader(section)
+                            }
+                        }
+                    }
+                }
             }
             Divider()
             offloadFooter
         }
     }
 
+    private struct RepoSection: Identifiable {
+        let id: String
+        let titleKey: String
+        let icon: String
+        let color: Color
+        let repos: [ProjectRepo]
+    }
+
+    private var sections: [RepoSection] {
+        let ready = manager.repos.filter {
+            manager.results[$0.id] == nil &&
+            ($0.report.status == .safeToOffload || $0.report.status == .needsPushFirst)
+        }
+        let attention = manager.repos.filter {
+            manager.results[$0.id] == nil &&
+            [SafetyStatus.noRemote, .conflictRisk, .hasLocalOnlySecrets, .blocked, .unknown].contains($0.report.status)
+        }
+        let done = manager.repos.filter { manager.results[$0.id] != nil }
+        var out: [RepoSection] = []
+        if !ready.isEmpty {
+            out.append(RepoSection(id: "ready", titleKey: "offload.section.ready",
+                                   icon: "checkmark.seal.fill", color: .green, repos: ready))
+        }
+        if !attention.isEmpty {
+            out.append(RepoSection(id: "attention", titleKey: "offload.section.attention",
+                                   icon: "exclamationmark.triangle.fill", color: .orange, repos: attention))
+        }
+        if !done.isEmpty {
+            out.append(RepoSection(id: "done", titleKey: "offload.section.done",
+                                   icon: "externaldrive.badge.checkmark", color: .secondary, repos: done))
+        }
+        return out
+    }
+
+    private func sectionHeader(_ s: RepoSection) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: s.icon).foregroundColor(s.color).font(.caption)
+            Text(LocalizedStringKey(s.titleKey)).font(.subheadline).fontWeight(.semibold)
+            Text("\(s.repos.count)").font(.caption2).foregroundColor(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+            Spacer()
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(.bar)
+    }
+
     private var offloadHeader: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(LocalizedStringKey("offload.root_label")).font(.caption).foregroundColor(.secondary)
-                Text(manager.rootURL?.path ?? NSLocalizedString("offload.root_unset", comment: ""))
+                Text(manager.scanScopeLabel.isEmpty
+                     ? (manager.rootURL?.path ?? NSLocalizedString("offload.root_unset", comment: ""))
+                     : manager.scanScopeLabel)
                     .font(.callout).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 8) {
+                    Button(LocalizedStringKey("offload.scan_defaults")) { Task { await manager.scanDefaults() } }
+                        .disabled(manager.isBusy)
                     Button(LocalizedStringKey("offload.choose_root")) { chooseRoot() }
                     Button(LocalizedStringKey("offload.rescan")) { Task { await manager.scan() } }
-                        .disabled(manager.rootURL == nil || manager.isBusy)
+                        .disabled(manager.isBusy)
                     if !manager.statusLine.isEmpty {
                         ProgressView().controlSize(.small)
                         Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
@@ -260,6 +341,42 @@ struct OffloadView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             Divider()
+        }
+    }
+
+    // MARK: - Map pane
+
+    private var mapPane: some View {
+        TreemapView(items: manager.mapItems,
+                    selected: Set(manager.repos.filter { $0.isSelected }.map { $0.id }),
+                    sessionReclaimed: manager.sessionReclaimed,
+                    onTap: onMapTap)
+            .onAppear { manager.startMapBuild() }
+            .onDisappear { manager.stopMapBuild() }
+    }
+
+    private func onMapTap(_ item: MapItem) {
+        switch item.kind {
+        case .repo:
+            if item.repoSelectable { manager.toggle(item.id) }
+        case .junkAuto:
+            confirmTrash(item)
+        case .junkShowOnly, .other:
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+        }
+    }
+
+    private func confirmTrash(_ item: MapItem) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(format: NSLocalizedString("map.trash.title", comment: ""), item.name)
+        alert.informativeText = String(format: NSLocalizedString("map.trash.message", comment: ""),
+                                       OffloadManager.formatBytes(item.bytes))
+        let del = alert.addButton(withTitle: NSLocalizedString("map.trash.confirm", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("offload.confirm.cancel", comment: ""))
+        del.hasDestructiveAction = true
+        if alert.runModal() == .alertFirstButtonReturn {
+            Task { await manager.trashJunk(item) }
         }
     }
 

@@ -167,3 +167,32 @@
 "offload.preflight.will_create" = "將建私有 repo";
 "offload.preflight.unreachable" = "無法連到遠端或認證失敗";
 "offload.preflight.behind" = "本機落後遠端，需先合併";
+
+/* ----- default scan locations ----- */
+"offload.scope.defaults" = "預設位置（主目錄、桌面、下載、文件…）";
+"offload.scan_defaults" = "掃描預設位置";
+
+/* ----- Map tab ----- */
+"offload.mode.map" = "地圖";
+"map.computing" = "正在計算各資料夾大小…";
+"map.legend.repo" = "可卸載專案";
+"map.legend.junk" = "可清垃圾";
+"map.legend.regen" = "可重生(手動)";
+"map.legend.other" = "其他";
+"map.mapped_format" = "%d 個項目 · 共 %@";
+"map.reclaimed_format" = "本次已清出 %@";
+"map.menu.reveal" = "在 Finder 中顯示";
+"map.menu.select" = "加入卸載";
+"map.menu.deselect" = "取消選取";
+"map.trash.title" = "刪除「%@」?";
+"map.trash.message" = "這是可重新產生的快取(最多約 %@),會移到垃圾桶。需要時可重建,或直接從垃圾桶復原。";
+"map.trash.confirm" = "移到垃圾桶";
+
+/* ----- size slider & sections ----- */
+"slider.title" = "用大小快速選取";
+"slider.summary_format" = "選 %d 個(≥ %@)";
+"slider.smaller" = "小";
+"slider.bigger" = "大";
+"offload.section.ready" = "可卸載";
+"offload.section.attention" = "需要先處理";
+"offload.section.done" = "已卸載";
