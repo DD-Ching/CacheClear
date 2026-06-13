@@ -16,8 +16,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
 
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
+    private var offloadWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
     private let cacheFolderManager = CacheFolderManager.shared
+    private let offloadMenuTag = 103
+    private let restoreMenuTag = 104
 
     @Published var cacheSize: String = "..."
     @Published var lastCleared: String = ""
@@ -36,6 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         enableLaunchAtLogin()
         setupMenuBar()
         setupHotKey()
@@ -94,6 +98,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         )
         deepCleanItem.tag = deepCleanMenuTag
         menu.addItem(deepCleanItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let offloadItem = NSMenuItem(
+            title: NSLocalizedString("menu.offload", comment: ""),
+            action: #selector(openOffloadWindow),
+            keyEquivalent: ""
+        )
+        offloadItem.tag = offloadMenuTag
+        menu.addItem(offloadItem)
+
+        let restoreItem = NSMenuItem(
+            title: NSLocalizedString("menu.restore", comment: ""),
+            action: #selector(openRestoreWindow),
+            keyEquivalent: ""
+        )
+        restoreItem.tag = restoreMenuTag
+        menu.addItem(restoreItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -512,7 +534,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         if settingsWindow == nil {
             let contentView = SettingsView()
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 360, height: 420),
+                contentRect: NSRect(x: 0, y: 0, width: 380, height: 560),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -526,6 +548,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
 
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func openOffloadWindow() {
+        if offloadWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = NSLocalizedString("offload.window.title", comment: "")
+            window.contentView = NSHostingView(rootView: OffloadView())
+            window.center()
+            window.isReleasedWhenClosed = false
+            offloadWindow = window
+        }
+        offloadWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func openRestoreWindow() {
+        openOffloadWindow()
+        Task { @MainActor in await OffloadManager.shared.refreshOffloads() }
     }
 
     private func withCacheFolderAccess<T>(_ handler: (URL) -> T) -> T? {

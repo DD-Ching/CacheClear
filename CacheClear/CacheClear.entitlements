@@ -2,8 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
+	<!-- Sandbox disabled: the GitHub Offload feature must run the user's real
+	     git/gh/ssh with their existing credentials (keychain, ~/.ssh), which
+	     live outside any sandbox container. The deep-clean already shells out
+	     to brew/npm, so the app is a non-sandboxed power-user dev tool. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
+	<!-- Retained one release for security-scoped bookmark migration of an
+	     existing cache-folder selection; harmless no-ops when unsandboxed. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>

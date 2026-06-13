@@ -11,9 +11,11 @@ import Carbon
 struct SettingsView: View {
     @ObservedObject private var hotKeyManager = HotKeyManager.shared
     @ObservedObject private var cacheFolderManager = CacheFolderManager.shared
+    @ObservedObject private var offloadSettings = OffloadSettings.shared
     @State private var isRecording = false
 
     var body: some View {
+        ScrollView {
         VStack(spacing: 16) {
             // 快捷鍵設定區
             GroupBox(LocalizedStringKey("settings.hotkey.group_title")) {
@@ -67,9 +69,42 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
             }
+
+            GroupBox(LocalizedStringKey("settings.offload.group_title")) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(LocalizedStringKey("settings.offload.subtitle"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Stepper(value: $offloadSettings.inactiveDays, in: 1...365) {
+                        Text("\(NSLocalizedString("settings.offload.inactive_days", comment: "")): \(offloadSettings.inactiveDays)")
+                            .font(.caption)
+                    }
+
+                    Toggle(isOn: $offloadSettings.autoCreatePrivate) {
+                        Text(LocalizedStringKey("settings.offload.auto_create")).font(.caption)
+                    }
+
+                    Picker(selection: $offloadSettings.permanentDelete) {
+                        Text(LocalizedStringKey("settings.offload.deletion_trash")).tag(false)
+                        Text(LocalizedStringKey("settings.offload.deletion_permanent")).tag(true)
+                    } label: {
+                        Text(LocalizedStringKey("settings.offload.deletion_mode")).font(.caption)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Button(LocalizedStringKey("settings.offload.open_button")) {
+                        AppDelegate.shared?.openOffloadWindow()
+                    }
+                }
+                .padding(.vertical, 8)
+            }
         }
         .padding(20)
-        .frame(width: 360, height: 420)
+        .frame(width: 380)
+        }
+        .frame(width: 380, height: 560)
     }
 }
 
