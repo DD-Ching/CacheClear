@@ -76,6 +76,7 @@ final class OffloadManager: ObservableObject {
     private let settings = OffloadSettings.shared
     private let advisor: OffloadAdvisor = AdvisorFactory.make()
     private let fm = FileManager.default
+    private var scanGeneration = 0
 
     var isBusy: Bool { phase != .idle }
     var isModelBackedAdvisor: Bool { AdvisorFactory.isModelBacked }
@@ -116,10 +117,30 @@ final class OffloadManager: ObservableObject {
         }
     }
 
+    /// Tick every repo the user is allowed to offload (skips already-offloaded).
+    func selectAllEligible() {
+        for i in repos.indices where repos[i].report.status.isManuallySelectable && results[repos[i].id] == nil {
+            repos[i].isSelected = true
+        }
+    }
+
+    func deselectAll() {
+        for i in repos.indices { repos[i].isSelected = false }
+    }
+
+    var eligibleCount: Int {
+        repos.filter { $0.report.status.isManuallySelectable && results[$0.id] == nil }.count
+    }
+    var confirmedCount: Int {
+        repos.filter { $0.preflight == .confirmed || $0.preflight == .willCreateRepo }.count
+    }
+
     // MARK: - Scan & classify
 
     func scan() async {
         guard let root = rootURL else { return }
+        scanGeneration += 1
+        let gen = scanGeneration
         phase = .scanning
         results = [:]
         repos = []
@@ -138,6 +159,56 @@ final class OffloadManager: ObservableObject {
         statusLine = ""
         phase = .idle
         await refreshOffloads()
+        // The window is now interactive; confirm pushability over the network in
+        // the background and update each badge as it resolves.
+        await preflightEligible(gen: gen)
+    }
+
+    /// Network confirmation that each eligible repo can actually be pushed. Runs
+    /// after the (fast, local) scan so the auto-selected list is verified, not
+    /// just guessed. A repo that turns out to be behind/diverged/unreachable is
+    /// flagged and de-selected — the extra layer of insurance.
+    private func preflightEligible(gen: Int) async {
+        for i in repos.indices {
+            let s = repos[i].report.status
+            guard s == .safeToOffload || s == .needsPushFirst || s == .noRemote else { continue }
+            repos[i].preflight = repos[i].report.hasRemote ? .checking : .willCreateRepo
+        }
+        let targets = repos.filter { $0.preflight == .checking }.map(\.id)
+        for id in targets {
+            if gen != scanGeneration { return }
+            guard let idx = repos.firstIndex(where: { $0.id == id }) else { continue }
+            let repo = repos[idx]
+            statusLine = String(format: NSLocalizedString("offload.preflight_format", comment: ""), repo.name)
+            let status = await preflightOne(repo)
+            if gen != scanGeneration { return }
+            guard let idx2 = repos.firstIndex(where: { $0.id == id }) else { continue }
+            repos[idx2].preflight = status
+            if case .problem = status {
+                repos[idx2].report.status = .conflictRisk
+                repos[idx2].isSelected = false
+            }
+        }
+        if gen == scanGeneration { statusLine = "" }
+    }
+
+    private func preflightOne(_ repo: ProjectRepo) async -> PreflightStatus {
+        let dir = URL(fileURLWithPath: repo.path)
+        guard repo.report.hasRemote else { return .willCreateRepo }
+        if repo.report.isEmptyRepo { return .confirmed }   // initial push creates everything
+        let branch = repo.report.defaultBranch
+        let ref = branch.isEmpty ? "HEAD" : "refs/heads/\(branch)"
+        guard let ls = try? await runner.git(["ls-remote", "origin", ref], in: dir, network: true), ls.ok else {
+            return .problem(NSLocalizedString("offload.preflight.unreachable", comment: ""))
+        }
+        if ls.out.isEmpty { return .confirmed }            // branch not on remote yet → push creates it
+        let remoteSHA = ls.out.split(whereSeparator: { $0 == "\t" || $0 == " " }).first.map(String.init) ?? ""
+        guard !remoteSHA.isEmpty else { return .confirmed }
+        // Remote tip already contained in our history ⇒ a plain push fast-forwards.
+        if let anc = try? await runner.git(["merge-base", "--is-ancestor", remoteSHA, "HEAD"], in: dir), anc.ok {
+            return .confirmed
+        }
+        return .problem(NSLocalizedString("offload.preflight.behind", comment: ""))
     }
 
     private func discoverRepoPaths(under root: URL) -> [String] {

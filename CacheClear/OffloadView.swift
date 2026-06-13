@@ -52,6 +52,7 @@ struct OffloadView: View {
     private var offloadPane: some View {
         VStack(spacing: 0) {
             offloadHeader
+            if !manager.repos.isEmpty { planBanner }
             Divider()
             if manager.repos.isEmpty {
                 emptyState(manager.rootURL == nil ? "offload.empty.no_root" : "offload.empty.no_repos")
@@ -64,18 +65,51 @@ struct OffloadView: View {
     }
 
     private var offloadHeader: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(LocalizedStringKey("offload.root_label")).font(.caption).foregroundColor(.secondary)
                 Text(manager.rootURL?.path ?? NSLocalizedString("offload.root_unset", comment: ""))
                     .font(.callout).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 8) {
+                    Button(LocalizedStringKey("offload.choose_root")) { chooseRoot() }
+                    Button(LocalizedStringKey("offload.rescan")) { Task { await manager.scan() } }
+                        .disabled(manager.rootURL == nil || manager.isBusy)
+                    if !manager.statusLine.isEmpty {
+                        ProgressView().controlSize(.small)
+                        Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                }
             }
-            Spacer()
-            Button(LocalizedStringKey("offload.choose_root")) { chooseRoot() }
-            Button(LocalizedStringKey("offload.rescan")) { Task { await manager.scan() } }
-                .disabled(manager.rootURL == nil || manager.isBusy)
+            Spacer(minLength: 16)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(LocalizedStringKey("offload.reclaim_space_label")).font(.caption).foregroundColor(.secondary)
+                Text(OffloadManager.formatBytes(manager.reclaimableBytes))
+                    .font(.system(size: 24, weight: .semibold)).foregroundColor(.accentColor)
+                Text(String(format: NSLocalizedString("offload.selected_count_format", comment: ""),
+                            manager.selectedRepos.count))
+                    .font(.caption2).foregroundColor(.secondary)
+            }
         }
         .padding(12)
+    }
+
+    private var planBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checklist").foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: NSLocalizedString("offload.banner_format", comment: ""),
+                            manager.eligibleCount, manager.confirmedCount))
+                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(LocalizedStringKey("offload.select_all")) { manager.selectAllEligible() }
+                .disabled(manager.isBusy)
+            Button(LocalizedStringKey("offload.deselect_all")) { manager.deselectAll() }
+                .disabled(manager.isBusy)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.06))
     }
 
     private var offloadFooter: some View {
@@ -117,6 +151,7 @@ struct OffloadView: View {
                 if let result {
                     resultBadge(result)
                 } else {
+                    preflightBadge(repo.preflight)
                     statusBadge(repo.report.status)
                 }
                 Text(OffloadManager.formatBytes(repo.sizeBytes))
@@ -279,6 +314,25 @@ struct OffloadView: View {
             .font(.caption2).fontWeight(.medium)
             .padding(.horizontal, 7).padding(.vertical, 2)
             .background(color.opacity(0.18)).foregroundColor(color).cornerRadius(5)
+    }
+
+    @ViewBuilder
+    private func preflightBadge(_ p: PreflightStatus) -> some View {
+        switch p {
+        case .confirmed:
+            Label(LocalizedStringKey("offload.preflight.confirmed"), systemImage: "checkmark.seal.fill")
+                .labelStyle(.titleAndIcon).font(.caption2).foregroundColor(.green)
+        case .willCreateRepo:
+            Label(LocalizedStringKey("offload.preflight.will_create"), systemImage: "plus.circle")
+                .labelStyle(.titleAndIcon).font(.caption2).foregroundColor(.orange)
+        case .checking:
+            HStack(spacing: 3) {
+                ProgressView().controlSize(.small)
+                Text(LocalizedStringKey("offload.preflight.checking")).font(.caption2).foregroundColor(.secondary)
+            }
+        case .notChecked, .problem:
+            EmptyView()
+        }
     }
 
     private func resultBadge(_ result: RepoResult) -> some View {

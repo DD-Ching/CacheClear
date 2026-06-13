@@ -154,3 +154,16 @@
 "manager.push.body" = "有 %d 個未提交檔案與 %d 個未推送的提交，卸載時會先自動提交並推送到 GitHub。";
 "manager.safe.headline" = "可以安全卸載";
 "manager.safe.body" = "本機內容已在 GitHub 上，回收本機副本不會遺失任何東西。";
+
+/* ----- preflight & plan banner ----- */
+"offload.reclaim_space_label" = "預計清出空間";
+"offload.selected_count_format" = "已選 %d 個專案";
+"offload.banner_format" = "可卸載 %d 個專案，其中 %d 個已確認可推送（綠勾）。系統已自動勾選閒置久且確認可推送的專案，你可以自由調整。";
+"offload.select_all" = "全選";
+"offload.deselect_all" = "全不選";
+"offload.preflight_format" = "確認可推送中：%@";
+"offload.preflight.confirmed" = "可推送";
+"offload.preflight.checking" = "確認中";
+"offload.preflight.will_create" = "將建私有 repo";
+"offload.preflight.unreachable" = "無法連到遠端或認證失敗";
+"offload.preflight.behind" = "本機落後遠端，需先合併";

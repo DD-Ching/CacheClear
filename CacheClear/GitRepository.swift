@@ -50,6 +50,18 @@ enum MidOpKind: String, Codable {
     case merge, rebase, cherryPick, revert, bisect
 }
 
+/// Result of the network pre-flight that confirms, BEFORE the user commits to an
+/// offload, that a repo's push target is reachable and the push would actually
+/// go through (fast-forward). This is the extra layer of assurance on top of the
+/// local classification.
+enum PreflightStatus: Hashable {
+    case notChecked
+    case checking
+    case confirmed        // remote reachable + auth ok + fast-forwardable
+    case willCreateRepo   // no remote yet; a private repo will be created
+    case problem(String)  // behind/diverged/unreachable — excluded from auto-select
+}
+
 /// An untracked-but-ignored file that a plain `git push` would NOT carry to the
 /// remote, classified so the pipeline knows whether deleting it loses anything.
 struct IgnoredFile: Hashable, Codable {
@@ -108,6 +120,7 @@ struct ProjectRepo: Identifiable, Hashable {
     var sizeBytes: UInt64
     var report: RepoSafetyReport
     var isSelected: Bool = false
+    var preflight: PreflightStatus = .notChecked
 
     var ageDays: Int? {
         guard let last = lastActivity else { return nil }

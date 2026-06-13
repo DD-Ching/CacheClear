@@ -154,3 +154,16 @@
 "manager.push.body" = "There are %d uncommitted files and %d unpushed commits; offloading will commit and push them to GitHub first.";
 "manager.safe.headline" = "Safe to offload";
 "manager.safe.body" = "Everything is already on GitHub; reclaiming the local copy loses nothing.";
+
+/* ----- preflight & plan banner ----- */
+"offload.reclaim_space_label" = "Est. space to free";
+"offload.selected_count_format" = "%d selected";
+"offload.banner_format" = "%d project(s) can be offloaded; %d confirmed pushable (green check). Stale, push-confirmed projects are pre-selected — adjust freely.";
+"offload.select_all" = "Select All";
+"offload.deselect_all" = "Deselect All";
+"offload.preflight_format" = "Confirming pushability: %@";
+"offload.preflight.confirmed" = "pushable";
+"offload.preflight.checking" = "checking";
+"offload.preflight.will_create" = "will create repo";
+"offload.preflight.unreachable" = "Remote unreachable or auth failed";
+"offload.preflight.behind" = "Local is behind remote; merge first";
