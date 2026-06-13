@@ -13,10 +13,12 @@ import AppKit
 struct OffloadView: View {
     @ObservedObject private var manager = OffloadManager.shared
     @ObservedObject private var settings = OffloadSettings.shared
+    @ObservedObject private var supporter = SupporterStore.shared
 
     @State private var mode: Mode = .offload
     @State private var expanded: Set<String> = []
     @State private var adviceRepo: ProjectRepo?
+    @State private var showSupporterSheet = false
 
     enum Mode: String, CaseIterable, Identifiable {
         case offload, restore, map
@@ -52,6 +54,7 @@ struct OffloadView: View {
         .sheet(item: $adviceRepo) { repo in
             AdviceSheet(repo: repo) { action in handle(action, for: repo) }
         }
+        .sheet(isPresented: $showSupporterSheet) { SupporterSheet() }
         .onAppear { if mode == .restore { Task { await manager.refreshOffloads() } } }
         .task {
             // First open with nothing chosen → scan common locations automatically.
@@ -66,6 +69,9 @@ struct OffloadView: View {
     private var offloadPane: some View {
         VStack(spacing: 0) {
             offloadHeader
+            if !supporter.isSupporter && !supporter.preUploadHeadsUpSeen && !manager.repos.isEmpty {
+                preUploadHeadsUp
+            }
             if !manager.repos.isEmpty { planBanner }
             Divider()
             if manager.repos.isEmpty {
@@ -191,6 +197,24 @@ struct OffloadView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(Color.accentColor.opacity(0.06))
+    }
+
+    /// One-line, once-ever, dismissible heads-up so the in-upload support card is
+    /// never a surprise. Free users only; never blocks.
+    private var preUploadHeadsUp: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "heart").foregroundColor(.secondary).font(.caption)
+            Text(LocalizedStringKey("support.reminder.line"))
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button { supporter.dismissPreUploadHeadsUp() } label: {
+                Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Color.primary.opacity(0.04))
     }
 
     private var offloadFooter: some View {
@@ -393,15 +417,35 @@ struct OffloadView: View {
     private var busyOverlay: some View {
         ZStack {
             Color.black.opacity(0.25).ignoresSafeArea()
-            VStack(spacing: 10) {
-                ProgressView()
-                Text(phaseText).font(.callout)
-                if !manager.statusLine.isEmpty { Text(manager.statusLine).font(.caption).foregroundColor(.secondary) }
+            Group {
+                if isUploadingPush && !supporter.isSupporter {
+                    SupporterCard { showSupporterSheet = true }
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                } else {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text(phaseText).font(.callout)
+                        if !manager.statusLine.isEmpty {
+                            Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
+                        }
+                        if supporter.isSupporter && isUploadingPush {
+                            Text(LocalizedStringKey("support.card.thanks_member"))
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(24)
+                }
             }
-            .padding(24)
             .background(.regularMaterial)
             .cornerRadius(12)
+            .animation(.easeInOut(duration: 0.25), value: isUploadingPush)
         }
+    }
+
+    /// True only during the live `git push` step — the moment the support card appears.
+    private var isUploadingPush: Bool {
+        if case .offloading(_, .push) = manager.phase { return true }
+        return false
     }
 
     private var phaseText: String {
@@ -527,7 +571,10 @@ struct OffloadView: View {
         alert.accessoryView = checkbox
 
         if alert.runModal() == .alertFirstButtonReturn {
-            Task { await manager.offloadSelected() }
+            Task {
+                await manager.offloadSelected()
+                supporter.dismissPreUploadHeadsUp()   // fallback: never nag after a real upload
+            }
         }
     }
 }

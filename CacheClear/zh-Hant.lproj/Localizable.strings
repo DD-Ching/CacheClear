@@ -196,3 +196,26 @@
 "offload.section.ready" = "可卸載";
 "offload.section.attention" = "需要先處理";
 "offload.section.done" = "已卸載";
+
+/* ----- Supporter ----- */
+"support.card.uploading" = "上傳中…";
+"support.card.thanks" = "謝謝您支持作者 🤍";
+"support.card.button" = "支持作者";
+"support.card.thanks_member" = "謝謝您 🤍";
+"support.sheet.title" = "支持作者";
+"support.sheet.free_pill" = "免費版功能完全相同,付費只是隱藏這張小卡";
+"support.sheet.body" = "付費只是請作者喝杯咖啡";
+"support.sheet.price" = "約 US$10 / 月";
+"support.sheet.cta_primary" = "成為支持者";
+"support.sheet.cta_secondary" = "繼續使用免費版";
+"support.sheet.restore" = "已經是支持者?貼上您的金鑰";
+"support.sheet.key_placeholder" = "授權金鑰";
+"support.sheet.unlock_button" = "解鎖";
+"support.sheet.restore_button" = "還原";
+"support.sheet.unlock_failed" = "這個金鑰無法使用";
+"support.sheet.close" = "關閉";
+"support.reminder.line" = "上傳時會出現一張小卡片謝謝支持者,免費版功能完全相同";
+"support.settings.group_title" = "支持者";
+"support.settings.member_status" = "謝謝您的支持 🤍";
+"support.settings.free_status" = "您用的是免費版,功能完全相同";
+"support.settings.support_button" = "支持作者";

@@ -12,7 +12,9 @@ struct SettingsView: View {
     @ObservedObject private var hotKeyManager = HotKeyManager.shared
     @ObservedObject private var cacheFolderManager = CacheFolderManager.shared
     @ObservedObject private var offloadSettings = OffloadSettings.shared
+    @ObservedObject private var supporterStore = SupporterStore.shared
     @State private var isRecording = false
+    @State private var showSupporterSheet = false
 
     var body: some View {
         ScrollView {
@@ -100,11 +102,31 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
             }
+
+            GroupBox(LocalizedStringKey("support.settings.group_title")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if supporterStore.isSupporter {
+                        Label(LocalizedStringKey("support.settings.member_status"), systemImage: "heart.fill")
+                            .foregroundColor(.pink)
+                            .font(.callout)
+                    } else {
+                        Text(LocalizedStringKey("support.settings.free_status"))
+                            .font(.caption).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(LocalizedStringKey("support.settings.support_button")) {
+                            showSupporterSheet = true
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+            }
         }
         .padding(20)
         .frame(width: 380)
         }
         .frame(width: 380, height: 560)
+        .sheet(isPresented: $showSupporterSheet) { SupporterSheet() }
     }
 }
 

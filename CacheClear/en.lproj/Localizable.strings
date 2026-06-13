@@ -196,3 +196,26 @@
 "offload.section.ready" = "Ready to offload";
 "offload.section.attention" = "Needs attention";
 "offload.section.done" = "Offloaded";
+
+/* ----- Supporter ----- */
+"support.card.uploading" = "Uploading…";
+"support.card.thanks" = "Thanks for supporting the author 🤍";
+"support.card.button" = "Support the author";
+"support.card.thanks_member" = "Thank you 🤍";
+"support.sheet.title" = "Support the author";
+"support.sheet.free_pill" = "The free version does everything — paying only hides this card.";
+"support.sheet.body" = "Paying just buys the author a coffee.";
+"support.sheet.price" = "About US$10 / month";
+"support.sheet.cta_primary" = "Become a supporter";
+"support.sheet.cta_secondary" = "Keep using the free version";
+"support.sheet.restore" = "Already a supporter? Paste your key";
+"support.sheet.key_placeholder" = "License key";
+"support.sheet.unlock_button" = "Unlock";
+"support.sheet.restore_button" = "Restore";
+"support.sheet.unlock_failed" = "That key didn't work.";
+"support.sheet.close" = "Close";
+"support.reminder.line" = "Uploads show a small thank-you card — the free version does everything.";
+"support.settings.group_title" = "Supporter";
+"support.settings.member_status" = "Thank you for your support 🤍";
+"support.settings.free_status" = "You're on the free version — everything works.";
+"support.settings.support_button" = "Support the author";
