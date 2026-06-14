@@ -62,6 +62,7 @@ struct OffloadView: View {
                 await manager.scanDefaults()
             }
         }
+        .task { await SponsorProvider.shared.refresh() }
     }
 
     // MARK: - Offload pane

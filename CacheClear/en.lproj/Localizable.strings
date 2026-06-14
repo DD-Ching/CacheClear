@@ -220,3 +220,5 @@
 "support.settings.member_status" = "Thank you for your support 🤍";
 "support.settings.free_status" = "You're on the free version — everything works.";
 "support.settings.support_button" = "Support the author";
+"sponsor.support_sub" = "Tap to support · free does everything";
+"sponsor.hide_with_support" = "Support the author · hide ads";

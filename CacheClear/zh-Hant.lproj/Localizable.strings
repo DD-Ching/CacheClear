@@ -220,3 +220,5 @@
 "support.settings.member_status" = "謝謝您的支持 🤍";
 "support.settings.free_status" = "您用的是免費版,功能完全相同";
 "support.settings.support_button" = "支持作者";
+"sponsor.support_sub" = "點一下支持・免費版功能不變";
+"sponsor.hide_with_support" = "支持作者・隱藏廣告";
