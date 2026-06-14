@@ -458,6 +458,13 @@ final class OffloadManager: ObservableObject {
         }
         phase = .idle
         await refreshOffloads()
+        // Quick re-scan so the list reflects the new reality: offloaded repos drop
+        // out (they're now in Restore), and anything just pushed re-checks as
+        // up-to-date. Skipped if something failed, so the error stays visible.
+        let anyFailed = targets.contains { results[$0.id]?.state == .failed }
+        if !targets.isEmpty && !anyFailed {
+            await scan()
+        }
     }
 
     private func offloadOne(_ repo: ProjectRepo) async {

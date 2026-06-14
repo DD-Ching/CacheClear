@@ -226,3 +226,6 @@
 "offload.detail.commits_format" = "%d commits";
 "offload.detail.modified_format" = "%d modified";
 "offload.detail.newfiles_format" = "%d new files";
+"support.sheet.tagline" = "Free forever — paying is just a cheer for the author.";
+"support.sheet.perk_coffee" = "Buy the author a coffee";
+"support.sheet.perk_hide" = "Hide the card shown while uploading";
