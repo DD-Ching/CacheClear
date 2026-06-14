@@ -633,7 +633,14 @@ final class OffloadManager: ObservableObject {
         // permanent-delete setting.
         let hasUnprovenLocalFiles = !repo.report.secretOrDataIgnored.isEmpty
             || repo.report.ignoredFiles.contains { $0.kind == .other }
-        if settings.permanentDelete && !hasUnprovenLocalFiles {
+        var usePermanent = settings.permanentDelete && !hasUnprovenLocalFiles
+        if usePermanent {
+            // A secret/db can hide INSIDE a regenerable-named ignored dir (e.g.
+            // build/prod.env) which the collapsed directory scan never sees. Do a
+            // file-level scan; if found, fall back to Trash so it stays recoverable.
+            usePermanent = !(await ignoredTreeHasSecretsOrData(dir: dir))
+        }
+        if usePermanent {
             try fm.removeItem(at: dir)
         } else {
             var resulting: NSURL?
@@ -643,6 +650,25 @@ final class OffloadManager: ObservableObject {
         try writeStub(manifest)
         appendToIndex(manifest)
         return manifest
+    }
+
+    /// File-level scan of gitignored files for anything that looks like a secret
+    /// or a database, by basename — including files buried inside a regenerable
+    /// directory that the collapsed `--directory` scan can't see. Used only before
+    /// a PERMANENT reclaim, to keep unproven local-only data recoverable.
+    private func ignoredTreeHasSecretsOrData(dir: URL) async -> Bool {
+        guard let r = try? await runner.git(
+            ["ls-files", "--others", "--ignored", "--exclude-standard"], in: dir), r.ok
+        else { return true }   // can't enumerate → assume yes (route to Trash, safe)
+        let secrets = [".env", "credentials", "service-account", "id_rsa",
+                       "id_ed25519", ".pem", ".key", ".p12", ".keystore", ".pfx", "secret"]
+        let data = [".sqlite", ".db", ".dump", ".sql"]
+        for line in r.stdout.split(separator: "\n") {
+            let name = (String(line) as NSString).lastPathComponent.lowercased()
+            if secrets.contains(where: { name.contains($0) }) { return true }
+            if data.contains(where: { name.hasSuffix($0) }) { return true }
+        }
+        return false
     }
 
     /// Append a pattern to .gitignore if not already present (idempotent).
