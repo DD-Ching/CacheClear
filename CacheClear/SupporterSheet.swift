@@ -85,25 +85,20 @@ struct SupporterSheet: View {
         VStack(spacing: 16) {
             freePromiseCard
 
-            VStack(spacing: 10) {
-                perkRow("cup.and.saucer.fill", "support.sheet.perk_coffee")
-                perkRow("eye.slash.fill", "support.sheet.perk_hide")
+            HStack(spacing: 12) {
+                planCard(icon: "cup.and.saucer.fill",
+                         title: "support.plan.tip_title",
+                         sub: "support.plan.tip_sub",
+                         price: nil,
+                         cta: "support.plan.tip_cta",
+                         highlighted: false)
+                planCard(icon: "heart.fill",
+                         title: "support.plan.member_title",
+                         sub: "support.sheet.perk_hide",
+                         price: "support.sheet.price",
+                         cta: "support.sheet.cta_primary",
+                         highlighted: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(LocalizedStringKey("support.sheet.price"))
-                .font(.title3).fontWeight(.semibold)
-
-            Button {
-                store.openCheckout()
-                withAnimation { showKeyField = true }
-            } label: {
-                Text(LocalizedStringKey("support.sheet.cta_primary"))
-                    .font(.headline).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).padding(.vertical, 12)
-                    .background(warm, in: RoundedRectangle(cornerRadius: 12))
-            }
-            .buttonStyle(.plain)
 
             Button(LocalizedStringKey("support.sheet.cta_secondary")) { dismiss() }
                 .buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
@@ -112,12 +107,43 @@ struct SupporterSheet: View {
         }
     }
 
-    private func perkRow(_ icon: String, _ key: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).font(.body).foregroundStyle(.pink).frame(width: 24)
-            Text(LocalizedStringKey(key)).font(.callout)
-            Spacer(minLength: 0)
+    /// One plan: the one-time tip or the monthly membership. Both open checkout +
+    /// reveal the key field; the real billing (RevenueCat Web Billing or a license
+    /// store) slots in behind store.openCheckout + unlock with no UI change.
+    private func planCard(icon: String, title: String, sub: String,
+                          price: String?, cta: String, highlighted: Bool) -> some View {
+        VStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 25))
+                .foregroundStyle(highlighted ? AnyShapeStyle(warm) : AnyShapeStyle(Color.accentColor))
+            Text(LocalizedStringKey(title)).font(.callout).fontWeight(.semibold)
+            Text(LocalizedStringKey(sub)).font(.caption2).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if let price {
+                Text(LocalizedStringKey(price)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button {
+                store.openCheckout()
+                withAnimation { showKeyField = true }
+            } label: {
+                Text(LocalizedStringKey(cta))
+                    .font(.subheadline).fontWeight(.semibold)
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+                    .foregroundStyle(highlighted ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.accentColor))
+                    .background(highlighted ? AnyShapeStyle(warm) : AnyShapeStyle(Color.accentColor.opacity(0.14)),
+                                in: RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 158)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(highlighted ? AnyShapeStyle(warm) : AnyShapeStyle(Color.primary.opacity(0.08)),
+                              lineWidth: highlighted ? 1.5 : 1)
+        )
     }
 
     @ViewBuilder

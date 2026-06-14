@@ -249,3 +249,7 @@
 "offload.readme_format" = "# %1$@ — 已由 CacheClear 卸載\n\n這個資料夾的本機檔案已安全推送到 GitHub 後移除,以釋放磁碟空間。\n\n- 遠端: %2$@\n- 分支: %3$@\n- HEAD: %4$@\n- 卸載時間: %5$@\n- 回收空間: %6$@\n- 刪除方式: %7$@\n\n## 還原方式\n在 CacheClear 選單選擇「還原已卸載專案…」,或手動執行:\n\n    cd \"%8$@\"\n    rm -rf \"%1$@\"\n    git clone %2$@ \"%1$@\"\n\n---\n由 CacheClear 製作・作者 DD-Ching。這個說明檔想刪就刪,完全不影響你的專案。";
 "settings.cache_folder.rejected_title" = "這個資料夾不能使用";
 "settings.cache_folder.rejected_message" = "為了安全,CacheClear 只清理真正的快取位置(~/Library/Caches、~/Library/Developer,或專案資料夾)。「%@」受保護,未被選取。";
+"support.plan.tip_title" = "請喝杯咖啡";
+"support.plan.tip_sub" = "一次性打賞";
+"support.plan.tip_cta" = "打賞";
+"support.plan.member_title" = "月費支持者";

@@ -249,3 +249,7 @@
 "offload.readme_format" = "# %1$@ — offloaded by CacheClear\n\nThis folder's local files were safely pushed to GitHub and then removed to free disk space.\n\n- Remote: %2$@\n- Branch: %3$@\n- HEAD: %4$@\n- Offloaded: %5$@\n- Reclaimed: %6$@\n- Deletion: %7$@\n\n## How to restore\nIn CacheClear, choose \"Restore Offloaded Project…\", or run:\n\n    cd \"%8$@\"\n    rm -rf \"%1$@\"\n    git clone %2$@ \"%1$@\"\n\n---\nMade with CacheClear by DD-Ching. Delete this note anytime — it won't affect your project.";
 "settings.cache_folder.rejected_title" = "That folder can't be used";
 "settings.cache_folder.rejected_message" = "For safety, CacheClear only clears real cache locations (inside ~/Library/Caches, ~/Library/Developer, or a project folder). \"%@\" is protected and was not selected.";
+"support.plan.tip_title" = "Buy a coffee";
+"support.plan.tip_sub" = "One-time thank-you";
+"support.plan.tip_cta" = "Tip";
+"support.plan.member_title" = "Monthly supporter";
