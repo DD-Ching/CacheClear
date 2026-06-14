@@ -222,3 +222,7 @@
 "support.settings.support_button" = "支持作者";
 "sponsor.support_sub" = "點一下支持・免費版功能不變";
 "sponsor.hide_with_support" = "支持作者・隱藏廣告";
+"offload.reveal_finder" = "在 Finder 中開啟";
+"offload.detail.commits_format" = "%d 個提交";
+"offload.detail.modified_format" = "%d 個已修改";
+"offload.detail.newfiles_format" = "%d 個新檔";

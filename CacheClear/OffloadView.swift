@@ -268,6 +268,10 @@ struct OffloadView: View {
                 }.buttonStyle(.borderless)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button(LocalizedStringKey("offload.reveal_finder")) { reveal(repo) }
+            }
 
             if isExpanded { repoDetail(repo).padding(.horizontal, 12).padding(.bottom, 10) }
             Divider()
@@ -293,46 +297,85 @@ struct OffloadView: View {
     @ViewBuilder
     private func repoDetail(_ repo: ProjectRepo) -> some View {
         let r = repo.report
-        VStack(alignment: .leading, spacing: 8) {
-            detailGroup("offload.group.will_push", color: .blue, items: willPushItems(r))
+        let lose = r.secretOrDataIgnored.map(\.path) + r.atRiskOtherFiles
+        VStack(alignment: .leading, spacing: 9) {
+            // Concise summaries; the full file lists live in the hover tooltip.
+            detailRow(icon: "arrow.up.circle.fill", color: .blue,
+                      titleKey: "offload.group.will_push",
+                      summary: pushSummary(r), full: r.untrackedFiles)
             if !r.regenerableIgnored.isEmpty {
-                detailGroup("offload.group.will_reclaim", color: .secondary, items: r.regenerableIgnored.map(\.path))
+                let paths = r.regenerableIgnored.map(\.path)
+                detailRow(icon: "arrow.triangle.2.circlepath", color: .secondary,
+                          titleKey: "offload.group.will_reclaim",
+                          summary: shortNames(paths), full: paths)
             }
-            let lose = r.secretOrDataIgnored.map(\.path) + r.atRiskOtherFiles
             if !lose.isEmpty {
-                detailGroup("offload.group.will_lose", color: .red, items: lose)
+                detailRow(icon: "exclamationmark.triangle.fill", color: .orange,
+                          titleKey: "offload.group.will_lose",
+                          summary: shortNames(lose), full: lose)
             }
-            if !repo.report.status.isAutoSelectable {
-                Button { adviceRepo = repo } label: {
-                    Label(LocalizedStringKey("offload.ask_assistant"), systemImage: "wand.and.stars")
-                }.buttonStyle(.borderless).padding(.top, 2)
+            HStack(spacing: 16) {
+                Button { reveal(repo) } label: {
+                    Label(LocalizedStringKey("offload.reveal_finder"), systemImage: "folder")
+                }.buttonStyle(.borderless)
+                if !repo.report.status.isAutoSelectable {
+                    Button { adviceRepo = repo } label: {
+                        Label(LocalizedStringKey("offload.ask_assistant"), systemImage: "wand.and.stars")
+                    }.buttonStyle(.borderless)
+                }
             }
+            .font(.caption)
+            .padding(.top, 2)
         }
-        .padding(10)
+        .padding(12)
         .background(Color.primary.opacity(0.04))
-        .cornerRadius(8)
+        .cornerRadius(10)
     }
 
-    private func willPushItems(_ r: RepoSafetyReport) -> [String] {
-        var items: [String] = []
+    /// One compact line per category: icon + title + a one-line summary. The full
+    /// item list appears only on hover (native tooltip), keeping the row clean.
+    private func detailRow(icon: String, color: Color, titleKey: String,
+                           summary: String, full: [String]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon).foregroundColor(color).font(.caption).frame(width: 15)
+            Text(LocalizedStringKey(titleKey)).font(.caption).fontWeight(.semibold).foregroundColor(color)
+            Text(summary).font(.caption).foregroundColor(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 0)
+            if full.count > 1 {
+                Image(systemName: "info.circle").font(.caption2).foregroundColor(.secondary.opacity(0.6))
+            }
+        }
+        .contentShape(Rectangle())
+        .help(full.isEmpty ? "" : full.joined(separator: "\n"))
+    }
+
+    private func pushSummary(_ r: RepoSafetyReport) -> String {
+        var parts: [String] = []
         if r.unpushedRefCount > 0 {
-            items.append(String(format: NSLocalizedString("offload.detail.unpushed_format", comment: ""), r.unpushedRefCount))
+            parts.append(String(format: NSLocalizedString("offload.detail.commits_format", comment: ""), r.unpushedRefCount))
         }
         if r.dirtyTrackedCount > 0 {
-            items.append(String(format: NSLocalizedString("offload.detail.dirty_format", comment: ""), r.dirtyTrackedCount))
+            parts.append(String(format: NSLocalizedString("offload.detail.modified_format", comment: ""), r.dirtyTrackedCount))
         }
-        items.append(contentsOf: r.untrackedFiles.prefix(20))
-        if items.isEmpty { items.append(NSLocalizedString("offload.detail.all_pushed", comment: "")) }
-        return items
+        if !r.untrackedFiles.isEmpty {
+            parts.append(String(format: NSLocalizedString("offload.detail.newfiles_format", comment: ""), r.untrackedFiles.count))
+        }
+        return parts.isEmpty ? NSLocalizedString("offload.detail.all_pushed", comment: "") : parts.joined(separator: " · ")
     }
 
-    private func detailGroup(_ titleKey: String, color: Color, items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(LocalizedStringKey(titleKey)).font(.caption).fontWeight(.semibold).foregroundColor(color)
-            ForEach(Array(items.prefix(30).enumerated()), id: \.offset) { _, item in
-                Text("• \(item)").font(.caption2).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+    /// First few base names, with a "+N" tail — the gist, not the dump.
+    private func shortNames(_ items: [String], max: Int = 3) -> String {
+        let names = items.map { p -> String in
+            let t = (p as NSString).lastPathComponent
+            return t.isEmpty ? p : t
         }
+        let shown = names.prefix(max).joined(separator: ", ")
+        return items.count > max ? "\(shown) +\(items.count - max)" : shown
+    }
+
+    private func reveal(_ repo: ProjectRepo) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
     }
 
     // MARK: - Restore pane

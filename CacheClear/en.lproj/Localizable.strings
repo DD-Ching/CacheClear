@@ -222,3 +222,7 @@
 "support.settings.support_button" = "Support the author";
 "sponsor.support_sub" = "Tap to support · free does everything";
 "sponsor.hide_with_support" = "Support the author · hide ads";
+"offload.reveal_finder" = "Open in Finder";
+"offload.detail.commits_format" = "%d commits";
+"offload.detail.modified_format" = "%d modified";
+"offload.detail.newfiles_format" = "%d new files";
