@@ -37,6 +37,11 @@ struct TreemapView: View {
                         }
                     }
                     .animation(.snappy(duration: 0.25), value: items)
+                    .overlay(alignment: .topLeading) {
+                        if let h = hovered, let item = items.first(where: { $0.id == h }) {
+                            hoverCard(item).padding(8).allowsHitTesting(false)
+                        }
+                    }
                 }
                 .padding(4)
             }
@@ -80,7 +85,8 @@ struct TreemapView: View {
         }
         .frame(width: w, height: h)
         .offset(x: b.rect.minX, y: b.rect.minY)
-        .help("\(item.name) — \(OffloadManager.formatBytes(item.bytes))")
+        .help([item.name, item.subtitle, item.badge, OffloadManager.formatBytes(item.bytes)]
+            .compactMap { $0 }.joined(separator: " · "))
         .onHover { hovered = $0 ? item.id : (hovered == item.id ? nil : hovered) }
         .onTapGesture { onTap(item) }
         .contextMenu { contextMenu(item) }
@@ -98,6 +104,31 @@ struct TreemapView: View {
                 onTap(item)
             }
         }
+    }
+
+    /// Floating card shown while hovering a block — the same key facts as a list
+    /// row: name, repo slug / path, status badge, and size.
+    private func hoverCard(_ item: MapItem) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(item.kind.fill).frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name).font(.caption).fontWeight(.semibold)
+                if let s = item.subtitle, !s.isEmpty {
+                    Text(s).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                }
+            }
+            if let b = item.badge, !b.isEmpty {
+                Text(b).font(.caption2)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.1)))
+            }
+            Text(OffloadManager.formatBytes(item.bytes))
+                .font(.caption).foregroundColor(.secondary).monospacedDigit()
+        }
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12)))
+        .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
     }
 
     private var legend: some View {

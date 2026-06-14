@@ -96,6 +96,13 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    Toggle(isOn: Binding(
+                        get: { !offloadSettings.skipOffloadConfirm },
+                        set: { offloadSettings.skipOffloadConfirm = !$0 }
+                    )) {
+                        Text(LocalizedStringKey("settings.offload.confirm_each")).font(.caption)
+                    }
+
                     Button(LocalizedStringKey("settings.offload.open_button")) {
                         AppDelegate.shared?.openOffloadWindow()
                     }

@@ -44,6 +44,19 @@ enum SafetyStatus: String, Codable {
         case .hasLocalOnlySecrets, .conflictRisk, .blocked, .unknown: return false
         }
     }
+
+    /// Localization key for the short status label (shared by the list + map).
+    var labelKey: String {
+        switch self {
+        case .safeToOffload: return "offload.status.safe"
+        case .needsPushFirst: return "offload.status.push"
+        case .noRemote: return "offload.status.no_remote"
+        case .hasLocalOnlySecrets: return "offload.status.secrets"
+        case .conflictRisk: return "offload.status.conflict"
+        case .blocked: return "offload.status.blocked"
+        case .unknown: return "offload.status.unknown"
+        }
+    }
 }
 
 enum MidOpKind: String, Codable {
@@ -132,6 +145,20 @@ struct ProjectRepo: Identifiable, Hashable {
     var ageDays: Int? {
         guard let last = lastActivity else { return nil }
         return Calendar.current.dateComponents([.day], from: last, to: Date()).day
+    }
+
+    /// Seconds since the last activity (commit or file change), or nil if unknown.
+    var secondsIdle: TimeInterval? {
+        guard let last = lastActivity else { return nil }
+        return max(0, Date().timeIntervalSince(last))
+    }
+
+    /// Touched within the last 3 days → actively in use; never bulk-selected for
+    /// offload (the user can still pick it manually). Guards against reclaiming a
+    /// project you're working on right now.
+    var isRecentlyActive: Bool {
+        guard let s = secondsIdle else { return false }
+        return s < 3 * 24 * 3600
     }
 
     /// GitHub "owner/name" slug if the remote points at github.com, else nil.

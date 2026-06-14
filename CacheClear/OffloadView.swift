@@ -16,20 +16,28 @@ struct OffloadView: View {
     @ObservedObject private var supporter = SupporterStore.shared
 
     @State private var mode: Mode = .offload
+    @State private var presentation: Presentation = .list
     @State private var expanded: Set<String> = []
     @State private var adviceRepo: ProjectRepo?
     @State private var showSupporterSheet = false
 
     enum Mode: String, CaseIterable, Identifiable {
-        case offload, restore, map
+        case offload, restore
         var id: String { rawValue }
         var titleKey: String {
             switch self {
             case .offload: return "offload.mode.offload"
             case .restore: return "offload.mode.restore"
-            case .map: return "offload.mode.map"
             }
         }
+    }
+
+    /// How the Offload tab presents its repos: a scrollable list or the treemap.
+    enum Presentation: String, CaseIterable, Identifiable {
+        case list, map
+        var id: String { rawValue }
+        var titleKey: String { self == .list ? "offload.present.list" : "offload.present.map" }
+        var icon: String { self == .list ? "list.bullet" : "square.grid.2x2" }
     }
 
     var body: some View {
@@ -45,8 +53,7 @@ struct OffloadView: View {
 
             Group {
                 if mode == .offload { offloadPane }
-                else if mode == .restore { restorePane }
-                else { mapPane }
+                else { restorePane }
             }
         }
         .frame(minWidth: 700, minHeight: 500)
@@ -70,37 +77,70 @@ struct OffloadView: View {
     private var offloadPane: some View {
         VStack(spacing: 0) {
             offloadHeader
-            if !supporter.isSupporter && !supporter.preUploadHeadsUpSeen && !manager.repos.isEmpty {
-                preUploadHeadsUp
+            presentationToggle
+            if presentation == .list && !manager.repos.isEmpty {
+                if !supporter.isSupporter && !supporter.preUploadHeadsUpSeen {
+                    preUploadHeadsUp
+                }
+                planBanner
             }
-            if !manager.repos.isEmpty { planBanner }
             Divider()
             if manager.repos.isEmpty {
                 emptyState(manager.rootURL == nil ? "offload.empty.no_root" : "offload.empty.no_repos")
+            } else if presentation == .map {
+                mapContent
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        if manager.eligibleRepos.count > 1 {
-                            SizeThresholdSlider(
-                                repos: manager.eligibleRepos,
-                                onThreshold: { manager.selectBySizeThreshold(minBytes: $0) },
-                                onToggle: { manager.toggle($0) }
-                            )
-                            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 2)
-                        }
-                        ForEach(sections) { section in
-                            Section {
-                                ForEach(section.repos) { repoRow($0) }
-                            } header: {
-                                sectionHeader(section)
-                            }
-                        }
-                    }
-                }
+                listContent
             }
             Divider()
             offloadFooter
         }
+    }
+
+    private var presentationToggle: some View {
+        HStack {
+            Picker("", selection: $presentation) {
+                ForEach(Presentation.allCases) { p in
+                    Label(LocalizedStringKey(p.titleKey), systemImage: p.icon).tag(p)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            Spacer()
+        }
+        .padding(.horizontal, 12).padding(.bottom, 6)
+    }
+
+    private var listContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if manager.eligibleRepos.count > 1 {
+                    SizeThresholdSlider(
+                        repos: manager.eligibleRepos,
+                        onThreshold: { manager.selectBySizeThreshold(minBytes: $0) },
+                        onToggle: { manager.toggle($0) }
+                    )
+                    .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 2)
+                }
+                ForEach(sections) { section in
+                    Section {
+                        ForEach(section.repos) { repoRow($0) }
+                    } header: {
+                        sectionHeader(section)
+                    }
+                }
+            }
+        }
+    }
+
+    private var mapContent: some View {
+        TreemapView(items: manager.mapItems,
+                    selected: Set(manager.repos.filter { $0.isSelected }.map { $0.id }),
+                    sessionReclaimed: manager.sessionReclaimed,
+                    onTap: onMapTap)
+            .onAppear { manager.startMapBuild() }
+            .onDisappear { manager.stopMapBuild() }
     }
 
     private struct RepoSection: Identifiable {
@@ -150,20 +190,33 @@ struct OffloadView: View {
         .background(.bar)
     }
 
+    private var scopeShortLabel: String {
+        if let url = manager.rootURL { return url.lastPathComponent }
+        return NSLocalizedString("offload.scope.menu_defaults", comment: "")
+    }
+
     private var offloadHeader: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(LocalizedStringKey("offload.root_label")).font(.caption).foregroundColor(.secondary)
-                Text(manager.scanScopeLabel.isEmpty
-                     ? (manager.rootURL?.path ?? NSLocalizedString("offload.root_unset", comment: ""))
-                     : manager.scanScopeLabel)
-                    .font(.callout).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 8) {
-                    Button(LocalizedStringKey("offload.scan_defaults")) { Task { await manager.scanDefaults() } }
-                        .disabled(manager.isBusy)
-                    Button(LocalizedStringKey("offload.choose_root")) { chooseRoot() }
+                    // One scope control — the folder choices collapse into its menu.
+                    Menu {
+                        Button(LocalizedStringKey("offload.scan_defaults")) { Task { await manager.scanDefaults() } }
+                        Button(LocalizedStringKey("offload.choose_root")) { chooseRoot() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "folder")
+                            Text(scopeShortLabel).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .disabled(manager.isBusy)
+
                     Button(LocalizedStringKey("offload.rescan")) { Task { await manager.scan() } }
                         .disabled(manager.isBusy)
+
                     if !manager.statusLine.isEmpty {
                         ProgressView().controlSize(.small)
                         Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
@@ -253,7 +306,8 @@ struct OffloadView: View {
                                 .background(Color.orange.opacity(0.2)).cornerRadius(4)
                         }
                     }
-                    Text(ageText(repo)).font(.caption).foregroundColor(.secondary)
+                    Text(ageText(repo)).font(.caption)
+                        .foregroundColor(repo.isRecentlyActive ? .orange : .secondary)
                 }
                 Spacer()
                 if let result {
@@ -385,6 +439,12 @@ struct OffloadView: View {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
     }
 
+    /// Abbreviate a home-relative path with ~ for compact, unambiguous display.
+    private func tildePath(_ p: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p
+    }
+
     // MARK: - Restore pane
 
     private var restorePane: some View {
@@ -419,16 +479,7 @@ struct OffloadView: View {
         }
     }
 
-    // MARK: - Map pane
-
-    private var mapPane: some View {
-        TreemapView(items: manager.mapItems,
-                    selected: Set(manager.repos.filter { $0.isSelected }.map { $0.id }),
-                    sessionReclaimed: manager.sessionReclaimed,
-                    onTap: onMapTap)
-            .onAppear { manager.startMapBuild() }
-            .onDisappear { manager.stopMapBuild() }
-    }
+    // MARK: - Map interactions
 
     private func onMapTap(_ item: MapItem) {
         switch item.kind {
@@ -444,7 +495,8 @@ struct OffloadView: View {
     private func confirmTrash(_ item: MapItem) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(format: NSLocalizedString("map.trash.title", comment: ""), item.name)
+        // Show the real path (e.g. ~/.gradle/caches), never a bare ambiguous name.
+        alert.messageText = String(format: NSLocalizedString("map.trash.title", comment: ""), tildePath(item.path))
         alert.informativeText = String(format: NSLocalizedString("map.trash.message", comment: ""),
                                        OffloadManager.formatBytes(item.bytes))
         let del = alert.addButton(withTitle: NSLocalizedString("map.trash.confirm", comment: ""))
@@ -560,8 +612,12 @@ struct OffloadView: View {
     }
 
     private func ageText(_ repo: ProjectRepo) -> String {
-        guard let days = repo.ageDays else { return NSLocalizedString("offload.age.unknown", comment: "") }
-        return String(format: NSLocalizedString("offload.age.days_format", comment: ""), days)
+        guard let s = repo.secondsIdle else { return NSLocalizedString("offload.age.unknown", comment: "") }
+        if s < 3600 { return NSLocalizedString("offload.age.just_now", comment: "") }
+        if s < 86400 {
+            return String(format: NSLocalizedString("offload.age.hours_format", comment: ""), Int(s / 3600))
+        }
+        return String(format: NSLocalizedString("offload.age.days_format", comment: ""), Int(s / 86400))
     }
 
     // MARK: - Actions
@@ -602,6 +658,12 @@ struct OffloadView: View {
     }
 
     private func confirmAndOffload() {
+        // "Don't ask me again" → go straight to offload. The verify-before-delete
+        // safety gate still runs; only the confirmation dialog is skipped.
+        if settings.skipOffloadConfirm {
+            runOffload()
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = NSLocalizedString("offload.confirm.title", comment: "")
@@ -613,20 +675,36 @@ struct OffloadView: View {
         confirm.hasDestructiveAction = true
         confirm.isEnabled = false
 
-        let checkbox = NSButton(checkboxWithTitle: NSLocalizedString("offload.confirm.checkbox", comment: ""),
-                                target: nil, action: nil)
+        let ack = NSButton(checkboxWithTitle: NSLocalizedString("offload.confirm.checkbox", comment: ""),
+                           target: nil, action: nil)
         let gate = ConfirmGate()
         gate.confirmButton = confirm
-        checkbox.target = gate
-        checkbox.action = #selector(ConfirmGate.toggle(_:))
-        checkbox.state = .off
-        alert.accessoryView = checkbox
+        ack.target = gate
+        ack.action = #selector(ConfirmGate.toggle(_:))
+        ack.state = .off
+
+        let dontAsk = NSButton(checkboxWithTitle: NSLocalizedString("offload.confirm.dont_ask", comment: ""),
+                               target: nil, action: nil)
+        dontAsk.state = .off
+
+        let stack = NSStackView(views: [ack, dontAsk])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.layoutSubtreeIfNeeded()
+        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
+        alert.accessoryView = stack
 
         if alert.runModal() == .alertFirstButtonReturn {
-            Task {
-                await manager.offloadSelected()
-                supporter.dismissPreUploadHeadsUp()   // fallback: never nag after a real upload
-            }
+            if dontAsk.state == .on { settings.skipOffloadConfirm = true }
+            runOffload()
+        }
+    }
+
+    private func runOffload() {
+        Task {
+            await manager.offloadSelected()
+            supporter.dismissPreUploadHeadsUp()   // fallback: never nag after a real upload
         }
     }
 }

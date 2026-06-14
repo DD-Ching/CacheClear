@@ -149,13 +149,17 @@ final class OffloadManager: ObservableObject {
         let threshold = settings.inactiveDays
         for i in repos.indices {
             let r = repos[i]
-            repos[i].isSelected = r.report.status.isAutoSelectable && (r.ageDays ?? 0) >= threshold
+            repos[i].isSelected = r.report.status.isAutoSelectable
+                && (r.ageDays ?? 0) >= threshold
+                && !r.isRecentlyActive          // never auto-pick something you touched in the last 3 days
         }
     }
 
-    /// Tick every repo the user is allowed to offload (skips already-offloaded).
+    /// Tick every repo the user is allowed to offload (skips already-offloaded and
+    /// anything touched in the last 3 days — those need a deliberate manual tick).
     func selectAllEligible() {
-        for i in repos.indices where repos[i].report.status.isManuallySelectable && results[repos[i].id] == nil {
+        for i in repos.indices where repos[i].report.status.isManuallySelectable
+            && results[repos[i].id] == nil && !repos[i].isRecentlyActive {
             repos[i].isSelected = true
         }
     }
@@ -168,7 +172,8 @@ final class OffloadManager: ObservableObject {
     /// ones deselected. Drives the size-threshold slider; manual toggles run after.
     func selectBySizeThreshold(minBytes: UInt64) {
         for i in repos.indices where repos[i].report.status.isManuallySelectable && results[repos[i].id] == nil {
-            repos[i].isSelected = repos[i].sizeBytes >= minBytes
+            // Recently-active repos are never bulk-selected by size, even if large.
+            repos[i].isSelected = repos[i].sizeBytes >= minBytes && !repos[i].isRecentlyActive
         }
     }
 
@@ -749,7 +754,9 @@ final class OffloadManager: ObservableObject {
         // 1) Repos as green blocks (sizes already known) — render instantly.
         var items: [MapItem] = repos.map { r in
             MapItem(id: r.id, name: r.name, path: r.path, bytes: r.sizeBytes,
-                    kind: .repo, repoSelectable: r.report.status.isManuallySelectable)
+                    kind: .repo, repoSelectable: r.report.status.isManuallySelectable,
+                    subtitle: r.githubSlug ?? NSLocalizedString("offload.no_remote_pill", comment: ""),
+                    badge: NSLocalizedString(r.report.status.labelKey, comment: ""))
         }
         mapItems = items.sorted { $0.bytes > $1.bytes }
         guard gen == scanGeneration else { return }
@@ -804,10 +811,29 @@ final class OffloadManager: ObservableObject {
             if let owner = c.ownerRepoID, let gi = items.firstIndex(where: { $0.id == owner }) {
                 items[gi].bytes = items[gi].bytes > size ? items[gi].bytes - size : 0
             }
-            items.append(MapItem(id: c.url.path, name: c.url.lastPathComponent, path: c.url.path,
-                                 bytes: size, kind: c.auto ? .junkAuto : .junkShowOnly))
+            items.append(MapItem(id: c.url.path, name: junkDisplayName(c.url), path: c.url.path,
+                                 bytes: size, kind: c.auto ? .junkAuto : .junkShowOnly,
+                                 subtitle: homeTilde(c.url.path),
+                                 badge: NSLocalizedString(c.auto ? "map.badge.clearable" : "map.badge.regen", comment: "")))
             mapItems = items.sorted { $0.bytes > $1.bytes }
         }
+    }
+
+    private func homeTilde(_ path: String) -> String {
+        let h = fm.homeDirectoryForCurrentUser.path
+        return path.hasPrefix(h + "/") ? "~" + path.dropFirst(h.count) : path
+    }
+
+    /// Disambiguate generically-named junk by including its parent folder, so a
+    /// bare "caches" reads as ".gradle/caches" and is never confused with another
+    /// folder that merely shares the name.
+    private func junkDisplayName(_ url: URL) -> String {
+        let name = url.lastPathComponent
+        let generic: Set<String> = ["caches", "cache", "Caches", "build", "dist",
+                                    "out", "bin", "obj", "target", "tmp", "temp", "data"]
+        guard generic.contains(name) else { return name }
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        return parent.isEmpty ? name : "\(parent)/\(name)"
     }
 
     private func appendVerdict(_ url: URL, ignored: Bool, owner: String?, to candidates: inout [JunkCandidate]) {

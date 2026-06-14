@@ -232,3 +232,12 @@
 "slider.selected_format" = "%d selected";
 "offload.group.will_tidy" = "Will tidy up (stray Claude worktrees)";
 "manager.block.gitlink.headline" = "Contains nested git folders not on GitHub";
+"offload.age.just_now" = "just now";
+"offload.age.hours_format" = "%dh ago";
+"offload.confirm.dont_ask" = "Don't ask me again";
+"offload.scope.menu_defaults" = "Default locations";
+"settings.offload.confirm_each" = "Confirm before each offload";
+"map.badge.clearable" = "clearable";
+"map.badge.regen" = "regenerable";
+"offload.present.list" = "List";
+"offload.present.map" = "Map";

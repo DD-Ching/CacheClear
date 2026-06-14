@@ -41,6 +41,8 @@ struct MapItem: Identifiable, Sendable, Hashable {
     var bytes: UInt64       // var: a repo's green block shrinks as its junk is split out
     let kind: MapKind
     var repoSelectable: Bool = true
+    var subtitle: String?   // hover detail: repo slug, or junk's ~-path
+    var badge: String?      // hover detail: status / "clearable" / "regenerable"
 }
 
 struct LaidOutBlock: Identifiable, Hashable {

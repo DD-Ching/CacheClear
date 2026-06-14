@@ -3,11 +3,13 @@
 //  CacheClear
 //
 //  A single draggable track: every eligible repo is a dot placed by its size
-//  (log scale), biggest to the right, and a handle sits ON that same line. There
-//  is no second control bar — the dots line IS the slider.
+//  (log scale), biggest to the right, with a handle on the same line.
 //   • Drag the handle → bulk-select everything at-or-above the handle.
-//   • Hover a dot      → a floating label shows which repo it is (one source).
-//   • Click a dot      → toggle just that one repo (select / deselect).
+//   • Hover the strip  → the dot NEAREST the cursor highlights + a label shows
+//     which repo it is. (One interaction layer resolves the nearest dot by the
+//     real cursor x, so the highlight always matches where you point — no more
+//     per-dot hit-areas overlapping and picking the wrong dot.)
+//   • Click near a dot → toggle just that repo.
 //  Dots are coloured by the repo's ACTUAL selection state, kept in sync with the
 //  list below in both directions.
 //
@@ -36,6 +38,22 @@ struct SizeThresholdSlider: View {
     private var selectedCount: Int { repos.filter(\.isSelected).count }
     private var hoveredRepo: ProjectRepo? { hovered.flatMap { id in repos.first { $0.id == id } } }
 
+    private func dotX(_ r: ProjectRepo, _ w: CGFloat) -> CGFloat {
+        min(w - 2, max(2, CGFloat(normX(r.sizeBytes)) * w))
+    }
+
+    /// The dot nearest the cursor x, but only when reasonably close — so hovering
+    /// empty track shows nothing, and clicks far from any dot do nothing.
+    private func nearestDotID(toX x: CGFloat, _ w: CGFloat) -> String? {
+        var best: (id: String, dist: CGFloat)?
+        for r in repos {
+            let dist = abs(dotX(r, w) - x)
+            if best == nil || dist < best!.dist { best = (r.id, dist) }
+        }
+        guard let b = best, b.dist <= 22 else { return nil }
+        return b.id
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -53,15 +71,33 @@ struct SizeThresholdSlider: View {
                 let trackY = geo.size.height - 12
                 let hx = min(w - 9, max(9, w * t))
                 ZStack(alignment: .topLeading) {
-                    // base line
                     Capsule().fill(Color.primary.opacity(0.10))
                         .frame(width: w, height: 4).position(x: w / 2, y: trackY)
-                    // selected (right of handle) highlight
                     Capsule().fill(Color.accentColor.opacity(0.35))
                         .frame(width: max(0, w - hx), height: 4)
                         .position(x: hx + max(0, w - hx) / 2, y: trackY)
 
-                    ForEach(repos) { r in dot(r, w: w, y: trackY) }
+                    ForEach(repos) { r in dotVisual(r, w: w, y: trackY) }
+
+                    // ONE interaction layer: resolves the nearest dot to the real
+                    // cursor x for both hover and click. No per-dot hit areas.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let loc): hovered = nearestDotID(toX: loc.x, w)
+                            case .ended: hovered = nil
+                            }
+                        }
+                        .gesture(SpatialTapGesture().onEnded { v in
+                            if let id = nearestDotID(toX: v.location.x, w) { onToggle(id) }
+                        })
+
+                    if let r = hoveredRepo {
+                        hoverLabel(r)
+                            .allowsHitTesting(false)
+                            .position(x: min(max(70, dotX(r, w)), w - 70), y: 9)
+                    }
 
                     handle.position(x: hx, y: trackY)
                         .gesture(
@@ -73,11 +109,6 @@ struct SizeThresholdSlider: View {
                                 }
                                 .onEnded { _ in dragStartT = nil }
                         )
-
-                    if let r = hoveredRepo {
-                        hoverLabel(r)
-                            .position(x: min(max(70, normX(r.sizeBytes) * w), w - 70), y: 9)
-                    }
                 }
             }
             .frame(height: 46)
@@ -92,10 +123,10 @@ struct SizeThresholdSlider: View {
             .frame(width: 18, height: 18)
             .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
-            .contentShape(Circle().inset(by: -8))   // easy to grab
+            .contentShape(Circle().inset(by: -8))
     }
 
-    private func dot(_ r: ProjectRepo, w: CGFloat, y: CGFloat) -> some View {
+    private func dotVisual(_ r: ProjectRepo, w: CGFloat, y: CGFloat) -> some View {
         let d = dotSize(r.sizeBytes)
         let isHovered = hovered == r.id
         return ZStack {
@@ -107,10 +138,8 @@ struct SizeThresholdSlider: View {
                 .frame(width: d, height: d)
         }
         .frame(width: 24, height: 24)
-        .contentShape(Circle())
-        .position(x: min(w - 2, max(2, normX(r.sizeBytes) * w)), y: y)
-        .onHover { hovered = $0 ? r.id : (hovered == r.id ? nil : hovered) }
-        .onTapGesture { onToggle(r.id) }
+        .position(x: dotX(r, w), y: y)
+        .allowsHitTesting(false)
     }
 
     private func hoverLabel(_ r: ProjectRepo) -> some View {
@@ -123,6 +152,6 @@ struct SizeThresholdSlider: View {
     }
 
     private func dotSize(_ bytes: UInt64) -> CGFloat {
-        6 + CGFloat(normX(bytes)) * 7   // bigger repos → bigger dots
+        6 + CGFloat(normX(bytes)) * 7
     }
 }
