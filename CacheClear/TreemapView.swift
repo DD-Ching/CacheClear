@@ -15,7 +15,7 @@ struct TreemapView: View {
     var onTap: (MapItem) -> Void
 
     @State private var hovered: String?
-    @State private var hoverLoc: CGPoint?
+    @State private var hoveredRect: CGRect?
 
     private var total: UInt64 { items.reduce(0) { $0 + $1.bytes } }
 
@@ -38,23 +38,15 @@ struct TreemapView: View {
                         }
                     }
                     .animation(.snappy(duration: 0.25), value: items)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let loc):
-                            hoverLoc = loc
-                            hovered = blocks.last(where: { $0.rect.contains(loc) })?.id
-                        case .ended:
-                            hovered = nil; hoverLoc = nil
-                        }
-                    }
                     .overlay(alignment: .topLeading) {
-                        // The info card follows the cursor (not a fixed corner), so
-                        // it's always next to what you're pointing at.
-                        if let h = hovered, let item = items.first(where: { $0.id == h }), let loc = hoverLoc {
+                        // The info card sits next to the hovered block (per-block
+                        // hover is reliable here; the blocks don't overlap). It
+                        // never blocks interaction (allowsHitTesting false), so
+                        // hover keeps updating and clicks still hit the blocks.
+                        if let h = hovered, let item = items.first(where: { $0.id == h }), let rect = hoveredRect {
                             hoverCard(item)
                                 .frame(width: 240, alignment: .leading)
-                                .position(cardPosition(loc, in: geo.size))
+                                .position(cardPosition(for: rect, in: geo.size))
                                 .allowsHitTesting(false)
                         }
                     }
@@ -103,15 +95,21 @@ struct TreemapView: View {
         .offset(x: b.rect.minX, y: b.rect.minY)
         .help([item.name, item.subtitle, item.badge, OffloadManager.formatBytes(item.bytes)]
             .compactMap { $0 }.joined(separator: " · "))
+        .onHover { inside in
+            if inside { hovered = item.id; hoveredRect = b.rect }
+            else if hovered == item.id { hovered = nil; hoveredRect = nil }
+        }
         .onTapGesture { onTap(item) }
         .contextMenu { contextMenu(item) }
     }
 
-    /// Place the floating card just above the cursor, clamped inside the map.
-    private func cardPosition(_ loc: CGPoint, in size: CGSize) -> CGPoint {
+    /// Place the floating card centered on the hovered block, above it when there
+    /// is room (else below its top edge), clamped inside the map.
+    private func cardPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
         let cardW: CGFloat = 240, cardH: CGFloat = 60
-        let x = min(max(cardW / 2 + 6, loc.x), size.width - cardW / 2 - 6)
-        let y = min(max(cardH / 2 + 6, loc.y - 42), size.height - cardH / 2 - 6)
+        let x = min(max(cardW / 2 + 6, rect.midX), size.width - cardW / 2 - 6)
+        var y = rect.minY - cardH / 2 - 8
+        if y < cardH / 2 + 6 { y = min(rect.minY + cardH / 2 + 8, size.height - cardH / 2 - 6) }
         return CGPoint(x: x, y: y)
     }
 
