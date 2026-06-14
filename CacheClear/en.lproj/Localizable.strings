@@ -156,7 +156,7 @@
 "manager.safe.body" = "Everything is already on GitHub; reclaiming the local copy loses nothing.";
 
 /* ----- preflight & plan banner ----- */
-"offload.reclaim_space_label" = "Est. space to free";
+"offload.reclaim_space_label" = "Est. space to reclaim";
 "offload.selected_count_format" = "%d selected";
 "offload.banner_format" = "%d offloadable · %d confirmed";
 "offload.select_all" = "Select All";
@@ -247,3 +247,5 @@
 "offload.readme.del_trash" = "Moved to Trash (recoverable from the Trash)";
 "offload.readme.del_permanent" = "Permanently deleted";
 "offload.readme_format" = "# %1$@ — offloaded by CacheClear\n\nThis folder's local files were safely pushed to GitHub and then removed to free disk space.\n\n- Remote: %2$@\n- Branch: %3$@\n- HEAD: %4$@\n- Offloaded: %5$@\n- Reclaimed: %6$@\n- Deletion: %7$@\n\n## How to restore\nIn CacheClear, choose \"Restore Offloaded Project…\", or run:\n\n    cd \"%8$@\"\n    rm -rf \"%1$@\"\n    git clone %2$@ \"%1$@\"\n\n---\nMade with CacheClear by DD-Ching. Delete this note anytime — it won't affect your project.";
+"settings.cache_folder.rejected_title" = "That folder can't be used";
+"settings.cache_folder.rejected_message" = "For safety, CacheClear only clears real cache locations (inside ~/Library/Caches, ~/Library/Developer, or a project folder). \"%@\" is protected and was not selected.";

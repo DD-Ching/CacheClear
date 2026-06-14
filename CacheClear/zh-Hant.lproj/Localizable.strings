@@ -156,7 +156,7 @@
 "manager.safe.body" = "本機內容已在 GitHub 上，回收本機副本不會遺失任何東西。";
 
 /* ----- preflight & plan banner ----- */
-"offload.reclaim_space_label" = "預計清出空間";
+"offload.reclaim_space_label" = "預計回收空間";
 "offload.selected_count_format" = "已選 %d 個專案";
 "offload.banner_format" = "可卸載 %d・已確認 %d";
 "offload.select_all" = "全選";
@@ -180,7 +180,7 @@
 "map.legend.regen" = "可重生(手動)";
 "map.legend.other" = "其他";
 "map.mapped_format" = "%d 個項目 · 共 %@";
-"map.reclaimed_format" = "本次已清出 %@";
+"map.reclaimed_format" = "本次已回收 %@";
 "map.menu.reveal" = "在 Finder 中顯示";
 "map.menu.select" = "加入卸載";
 "map.menu.deselect" = "取消選取";
@@ -244,6 +244,8 @@
 "offload.error.protected_path" = "已拒絕:該位置受保護,未刪除任何東西。";
 "map.reason.locked" = "無法卸載 — 詳情見列表";
 "map.reason.showonly" = "僅供檢視 — 右鍵在 Finder 開啟";
-"offload.readme.del_trash" = "移至垃圾桶(可從垃圾桶復原)";
+"offload.readme.del_trash" = "移到垃圾桶(可從垃圾桶復原)";
 "offload.readme.del_permanent" = "永久刪除";
 "offload.readme_format" = "# %1$@ — 已由 CacheClear 卸載\n\n這個資料夾的本機檔案已安全推送到 GitHub 後移除,以釋放磁碟空間。\n\n- 遠端: %2$@\n- 分支: %3$@\n- HEAD: %4$@\n- 卸載時間: %5$@\n- 回收空間: %6$@\n- 刪除方式: %7$@\n\n## 還原方式\n在 CacheClear 選單選擇「還原已卸載專案…」,或手動執行:\n\n    cd \"%8$@\"\n    rm -rf \"%1$@\"\n    git clone %2$@ \"%1$@\"\n\n---\n由 CacheClear 製作・作者 DD-Ching。這個說明檔想刪就刪,完全不影響你的專案。";
+"settings.cache_folder.rejected_title" = "這個資料夾不能使用";
+"settings.cache_folder.rejected_message" = "為了安全,CacheClear 只清理真正的快取位置(~/Library/Caches、~/Library/Developer,或專案資料夾)。「%@」受保護,未被選取。";

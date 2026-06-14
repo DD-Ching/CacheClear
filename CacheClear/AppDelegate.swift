@@ -584,10 +584,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         let fileManager = FileManager.default
         var clearedSize: UInt64 = 0
 
-        // Safety backstop: never clear a protected location (home, Library,
-        // Documents, a system dir or a whole volume) even if it were selected.
-        guard PathSafety.isSafeToDelete(cachesURL) else {
-            NSLog("CacheClear: refused to clear protected folder \(cachesURL.path)")
+        // Positively scoped: only a real cache location may be cleared, so a
+        // mis-selected folder can never be wiped. And it goes to the Trash
+        // (recoverable), not a permanent delete.
+        guard PathSafety.isClearableCacheLocation(cachesURL) else {
+            NSLog("CacheClear: refused to clear non-cache location \(cachesURL.path)")
             return 0
         }
 
@@ -596,7 +597,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
                 if let size = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                     clearedSize += UInt64(size)
                 }
-                try? fileManager.removeItem(at: item)
+                var resulting: NSURL?
+                try? fileManager.trashItem(at: item, resultingItemURL: &resulting)
             }
         }
 

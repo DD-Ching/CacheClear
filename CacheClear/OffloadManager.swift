@@ -625,9 +625,15 @@ final class OffloadManager: ObservableObject {
         guard PathSafety.isSafeToDelete(dir) else {
             throw OffloadError.blocked(NSLocalizedString("offload.error.protected_path", comment: ""))
         }
-        // Reclaim the whole working tree (Trash by default), then recreate the
-        // directory and drop the stub so the original path stays meaningful.
-        if settings.permanentDelete {
+        // Reclaim the whole working tree, then recreate the directory and drop the
+        // stub so the original path stays meaningful. Permanent delete is only
+        // honored when nothing UNPROVEN would be lost: gitignored secrets/data and
+        // other non-regenerable ignored files were never pushed to the remote, so
+        // if any exist we fall back to the Trash (recoverable) regardless of the
+        // permanent-delete setting.
+        let hasUnprovenLocalFiles = !repo.report.secretOrDataIgnored.isEmpty
+            || repo.report.ignoredFiles.contains { $0.kind == .other }
+        if settings.permanentDelete && !hasUnprovenLocalFiles {
             try fm.removeItem(at: dir)
         } else {
             var resulting: NSURL?

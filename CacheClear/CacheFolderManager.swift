@@ -48,6 +48,17 @@ final class CacheFolderManager: ObservableObject {
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
+            // Only a real cache location may be chosen — refuse Mail/Keychains/
+            // system/other-user/volume folders up front, with clear feedback.
+            guard PathSafety.isClearableCacheLocation(url) else {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = NSLocalizedString("settings.cache_folder.rejected_title", comment: "")
+                alert.informativeText = String(format: NSLocalizedString("settings.cache_folder.rejected_message", comment: ""), url.path)
+                alert.addButton(withTitle: NSLocalizedString("alert.ok", comment: ""))
+                alert.runModal()
+                return
+            }
             self?.setSelectedURL(url)
         }
     }
@@ -94,6 +105,8 @@ final class CacheFolderManager: ObservableObject {
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             )
+            // Reject a stale bookmark that now points somewhere unsafe.
+            guard PathSafety.isClearableCacheLocation(url) else { return }
             if isStale {
                 setSelectedURL(url)
             } else {
@@ -109,7 +122,7 @@ final class CacheFolderManager: ObservableObject {
     private func loadPathFallback() {
         guard let path = UserDefaults.standard.string(forKey: pathKey) else { return }
         let url = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: path) {
+        if FileManager.default.fileExists(atPath: path) && PathSafety.isClearableCacheLocation(url) {
             selectedURL = url
         }
     }
