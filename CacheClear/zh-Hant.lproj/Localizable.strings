@@ -253,3 +253,9 @@
 "support.plan.tip_sub" = "一次性打賞";
 "support.plan.tip_cta" = "打賞";
 "support.plan.member_title" = "月費支持者";
+"offload.delete_no_push" = "直接刪除(不推送)";
+"offload.delete_no_push.title" = "直接刪除「%@」(不推送)?";
+"offload.delete_no_push.message" = "給已交接、GitHub 已有全部的專案用。CacheClear 會先核對遠端已包含你本機的所有提交,然後把本機副本移到垃圾桶(可復原)並留下還原說明,不會推送。若本機還有 GitHub 上沒有的東西,會直接拒絕、不刪任何東西。";
+"offload.delete_no_push.confirm" = "核對後刪除";
+"offload.error.delete_not_proven" = "已拒絕:本機還有 GitHub 上沒有的提交或變更,未刪除任何東西。若想保留請改用「推送並回收」。";
+"offload.error.no_remote_delete" = "這個專案沒有 GitHub 遠端可以核對,因此不能在不推送的情況下安全刪除。";

@@ -253,3 +253,9 @@
 "support.plan.tip_sub" = "One-time thank-you";
 "support.plan.tip_cta" = "Tip";
 "support.plan.member_title" = "Monthly supporter";
+"offload.delete_no_push" = "Delete without pushing";
+"offload.delete_no_push.title" = "Delete \"%@\" without pushing?";
+"offload.delete_no_push.message" = "For handed-off projects where GitHub already has everything. CacheClear first verifies the remote contains all your local commits, then moves the local copy to the Trash (recoverable) and leaves a restore note — it does NOT push. If your local has anything not yet on GitHub, it refuses and deletes nothing.";
+"offload.delete_no_push.confirm" = "Verify & Delete";
+"offload.error.delete_not_proven" = "Refused: your local copy still has commits or changes that aren't on GitHub — nothing was deleted. Use Push & Reclaim if you want to keep them.";
+"offload.error.no_remote_delete" = "This project has no GitHub remote to verify against, so it can't be safely deleted without pushing.";

@@ -379,6 +379,11 @@ struct OffloadView: View {
                 Button { reveal(repo) } label: {
                     Label(LocalizedStringKey("offload.reveal_finder"), systemImage: "folder")
                 }.buttonStyle(.borderless)
+                if repo.report.hasRemote && manager.results[repo.id] == nil {
+                    Button(role: .destructive) { confirmDeleteWithoutPush(repo) } label: {
+                        Label(LocalizedStringKey("offload.delete_no_push"), systemImage: "trash")
+                    }.buttonStyle(.borderless)
+                }
                 if !repo.report.status.isAutoSelectable {
                     Button { adviceRepo = repo } label: {
                         Label(LocalizedStringKey("offload.ask_assistant"), systemImage: "wand.and.stars")
@@ -443,6 +448,21 @@ struct OffloadView: View {
     private func tildePath(_ p: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p
+    }
+
+    /// Delete the local copy WITHOUT pushing (handed-off projects). Still verifies
+    /// the remote has everything first; goes to Trash; never pushes.
+    private func confirmDeleteWithoutPush(_ repo: ProjectRepo) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(format: NSLocalizedString("offload.delete_no_push.title", comment: ""), repo.name)
+        alert.informativeText = NSLocalizedString("offload.delete_no_push.message", comment: "")
+        let del = alert.addButton(withTitle: NSLocalizedString("offload.delete_no_push.confirm", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("offload.confirm.cancel", comment: ""))
+        del.hasDestructiveAction = true
+        if alert.runModal() == .alertFirstButtonReturn {
+            Task { await manager.deleteWithoutPush(repo) }
+        }
     }
 
     // MARK: - Restore pane

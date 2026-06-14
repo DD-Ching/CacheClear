@@ -34,6 +34,8 @@ enum OffloadError: LocalizedError {
     case ghUnavailable
     case ghCreateFailed(String)
     case restoreCollision
+    case deleteNotProven
+    case noRemoteForDelete
 
     var errorDescription: String? {
         switch self {
@@ -43,6 +45,8 @@ enum OffloadError: LocalizedError {
         case .ghUnavailable: return NSLocalizedString("offload.error.gh_unavailable", comment: "")
         case .ghCreateFailed(let m): return String(format: NSLocalizedString("offload.error.gh_create", comment: ""), m)
         case .restoreCollision: return NSLocalizedString("offload.error.restore_collision", comment: "")
+        case .deleteNotProven: return NSLocalizedString("offload.error.delete_not_proven", comment: "")
+        case .noRemoteForDelete: return NSLocalizedString("offload.error.no_remote_delete", comment: "")
         }
     }
 }
@@ -570,6 +574,42 @@ final class OffloadManager: ObservableObject {
             results[repo.id] = RepoResult(state: .failed, message: error.localizedDescription)
             lastError = error.localizedDescription
         }
+    }
+
+    /// Reclaim a project's local space WITHOUT pushing — for handed-off projects
+    /// where GitHub already has everything. The verify gate STILL runs: if the
+    /// local has any commit/branch/tag or uncommitted change the remote lacks,
+    /// this refuses and deletes nothing. Goes to Trash by default; leaves the stub.
+    func deleteWithoutPush(_ repo: ProjectRepo) async {
+        let dir = URL(fileURLWithPath: repo.path)
+        func step(_ s: OffloadStep) { phase = .offloading(repo: repo.name, step: s) }
+        do {
+            guard repo.report.hasRemote, let remoteURL = repo.remoteURL, !remoteURL.isEmpty else {
+                throw OffloadError.noRemoteForDelete
+            }
+            switch repo.report.status {
+            case .blocked, .hasLocalOnlySecrets:
+                throw OffloadError.blocked(repo.report.blockingReasons.first
+                    ?? NSLocalizedString("offload.error.not_eligible", comment: ""))
+            default:
+                break
+            }
+            // The load-bearing safety: prove the remote already holds everything.
+            step(.verify)
+            guard try await verifyRemoteHasEverything(dir: dir) else {
+                throw OffloadError.deleteNotProven
+            }
+            step(.reclaim)
+            let manifest = try await reclaim(repo: repo, dir: dir, remoteURL: remoteURL)
+            results[repo.id] = RepoResult(state: .offloaded,
+                message: String(format: NSLocalizedString("offload.result.reclaimed_format", comment: ""),
+                                Self.formatBytes(manifest.reclaimedBytes)))
+        } catch {
+            results[repo.id] = RepoResult(state: .failed, message: error.localizedDescription)
+            lastError = error.localizedDescription
+        }
+        phase = .idle
+        await refreshOffloads()
     }
 
     /// ALL gates must pass or we return false and the caller refuses to delete.
