@@ -241,3 +241,9 @@
 "map.badge.regen" = "可重生";
 "offload.present.list" = "列表";
 "offload.present.map" = "地圖";
+"offload.error.protected_path" = "已拒絕:該位置受保護,未刪除任何東西。";
+"map.reason.locked" = "無法卸載 — 詳情見列表";
+"map.reason.showonly" = "僅供檢視 — 右鍵在 Finder 開啟";
+"offload.readme.del_trash" = "移至垃圾桶(可從垃圾桶復原)";
+"offload.readme.del_permanent" = "永久刪除";
+"offload.readme_format" = "# %1$@ — 已由 CacheClear 卸載\n\n這個資料夾的本機檔案已安全推送到 GitHub 後移除,以釋放磁碟空間。\n\n- 遠端: %2$@\n- 分支: %3$@\n- HEAD: %4$@\n- 卸載時間: %5$@\n- 回收空間: %6$@\n- 刪除方式: %7$@\n\n## 還原方式\n在 CacheClear 選單選擇「還原已卸載專案…」,或手動執行:\n\n    cd \"%8$@\"\n    rm -rf \"%1$@\"\n    git clone %2$@ \"%1$@\"\n\n---\n由 CacheClear 製作・作者 DD-Ching。這個說明檔想刪就刪,完全不影響你的專案。";

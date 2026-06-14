@@ -43,6 +43,7 @@ struct MapItem: Identifiable, Sendable, Hashable {
     var repoSelectable: Bool = true
     var subtitle: String?   // hover detail: repo slug, or junk's ~-path
     var badge: String?      // hover detail: status / "clearable" / "regenerable"
+    var reason: String?     // why this can't be acted on (locked repo / reveal-only)
 }
 
 struct LaidOutBlock: Identifiable, Hashable {

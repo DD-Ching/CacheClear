@@ -584,8 +584,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         let fileManager = FileManager.default
         var clearedSize: UInt64 = 0
 
+        // Safety backstop: never clear a protected location (home, Library,
+        // Documents, a system dir or a whole volume) even if it were selected.
+        guard PathSafety.isSafeToDelete(cachesURL) else {
+            NSLog("CacheClear: refused to clear protected folder \(cachesURL.path)")
+            return 0
+        }
+
         if let contents = try? fileManager.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
-            for item in contents {
+            for item in contents where PathSafety.isSafeToDelete(item) {
                 if let size = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                     clearedSize += UInt64(size)
                 }
@@ -655,6 +662,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
     private func removeItemIfExists(_ url: URL) {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: url.path) else { return }
+        guard PathSafety.isSafeToDelete(url) else {
+            NSLog("CacheClear: refused to delete protected path \(url.path)")
+            return
+        }
         do {
             try fileManager.removeItem(at: url)
         } catch {

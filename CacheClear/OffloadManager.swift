@@ -620,6 +620,11 @@ final class OffloadManager: ObservableObject {
             backedUpSecrets: []
         )
 
+        // Safety backstop (in addition to the verify gate): never reclaim a
+        // protected path — home, a top-level folder, a system dir or a volume.
+        guard PathSafety.isSafeToDelete(dir) else {
+            throw OffloadError.blocked(NSLocalizedString("offload.error.protected_path", comment: ""))
+        }
         // Reclaim the whole working tree (Trash by default), then recreate the
         // directory and drop the stub so the original path stays meaningful.
         if settings.permanentDelete {
@@ -664,35 +669,15 @@ final class OffloadManager: ObservableObject {
     private func restoreReadme(_ m: OffloadManifest) -> String {
         let df = DateFormatter()
         df.dateStyle = .medium; df.timeStyle = .short
-        return """
-        # \(m.projectName) — 已由 CacheClear 卸載
-
-        這個資料夾的本機內容已經安全推送到 GitHub 後移除,以釋放磁碟空間。
-
-        - 遠端: \(m.remoteURL)
-        - 分支: \(m.defaultBranch)
-        - HEAD: \(m.headSHA)
-        - 卸載時間: \(df.string(from: m.offloadedAt))
-        - 回收空間: \(Self.formatBytes(m.reclaimedBytes))
-        - 刪除方式: \(m.deletionMode == "trash" ? "移至垃圾桶(可從垃圾桶復原)" : "永久刪除")
-
-        ## 還原方式
-
-        在 CacheClear 選單選擇「還原已卸載專案…」,或手動執行:
-
-        ```
-        cd "\(((m.originalPath as NSString).deletingLastPathComponent))"
-        rm -rf "\(m.projectName)"
-        git clone \(m.remoteURL) "\(m.projectName)"
-        ```
-
-        ---
-        This project was offloaded to GitHub by CacheClear to reclaim disk space.
-        Run `git clone \(m.remoteURL)` to restore it.
-
-        —— 由 CacheClear 製作・作者 DD-Ching ·  Made with CacheClear by DD-Ching
-        (這個說明檔想刪就刪,完全不影響你的專案。 Delete this note anytime — it won't affect your project.)
-        """
+        // Localized to the system language (English on an English Mac, etc.).
+        let delText = NSLocalizedString(
+            m.deletionMode == "trash" ? "offload.readme.del_trash" : "offload.readme.del_permanent",
+            comment: "")
+        let parent = (m.originalPath as NSString).deletingLastPathComponent
+        return String(format: NSLocalizedString("offload.readme_format", comment: ""),
+                      m.projectName, m.remoteURL, m.defaultBranch, m.headSHA,
+                      df.string(from: m.offloadedAt), Self.formatBytes(m.reclaimedBytes),
+                      delText, parent)
     }
 
     private func appSupportDir() -> URL {
@@ -756,7 +741,9 @@ final class OffloadManager: ObservableObject {
             MapItem(id: r.id, name: r.name, path: r.path, bytes: r.sizeBytes,
                     kind: .repo, repoSelectable: r.report.status.isManuallySelectable,
                     subtitle: r.githubSlug ?? NSLocalizedString("offload.no_remote_pill", comment: ""),
-                    badge: NSLocalizedString(r.report.status.labelKey, comment: ""))
+                    badge: NSLocalizedString(r.report.status.labelKey, comment: ""),
+                    reason: r.report.status.isManuallySelectable ? nil
+                        : (r.report.blockingReasons.first ?? NSLocalizedString("map.reason.locked", comment: "")))
         }
         mapItems = items.sorted { $0.bytes > $1.bytes }
         guard gen == scanGeneration else { return }
@@ -814,7 +801,8 @@ final class OffloadManager: ObservableObject {
             items.append(MapItem(id: c.url.path, name: junkDisplayName(c.url), path: c.url.path,
                                  bytes: size, kind: c.auto ? .junkAuto : .junkShowOnly,
                                  subtitle: homeTilde(c.url.path),
-                                 badge: NSLocalizedString(c.auto ? "map.badge.clearable" : "map.badge.regen", comment: "")))
+                                 badge: NSLocalizedString(c.auto ? "map.badge.clearable" : "map.badge.regen", comment: ""),
+                                 reason: c.auto ? nil : NSLocalizedString("map.reason.showonly", comment: "")))
             mapItems = items.sorted { $0.bytes > $1.bytes }
         }
     }
@@ -850,6 +838,10 @@ final class OffloadManager: ObservableObject {
     func trashJunk(_ item: MapItem) async {
         guard item.kind == .junkAuto else { return }
         let url = URL(fileURLWithPath: item.path)
+        guard PathSafety.isSafeToDelete(url) else {
+            lastError = NSLocalizedString("offload.error.protected_path", comment: "")
+            return
+        }
         do {
             var resulting: NSURL?
             try fm.trashItem(at: url, resultingItemURL: &resulting)
@@ -876,6 +868,7 @@ final class OffloadManager: ObservableObject {
                 $0 == OffloadManifest.stubFileName || $0 == OffloadManifest.readmeFileName || $0 == ".DS_Store"
             }
             guard onlyStub else { throw OffloadError.restoreCollision }
+            guard PathSafety.isSafeToDelete(dir) else { throw OffloadError.restoreCollision }
 
             try await runner.gitChecked(["clone", m.remoteURL, temp.path], in: parent, network: true)
             if !m.defaultBranch.isEmpty {

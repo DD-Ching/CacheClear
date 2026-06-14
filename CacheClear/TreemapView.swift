@@ -15,6 +15,7 @@ struct TreemapView: View {
     var onTap: (MapItem) -> Void
 
     @State private var hovered: String?
+    @State private var hoverLoc: CGPoint?
 
     private var total: UInt64 { items.reduce(0) { $0 + $1.bytes } }
 
@@ -37,9 +38,24 @@ struct TreemapView: View {
                         }
                     }
                     .animation(.snappy(duration: 0.25), value: items)
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let loc):
+                            hoverLoc = loc
+                            hovered = blocks.last(where: { $0.rect.contains(loc) })?.id
+                        case .ended:
+                            hovered = nil; hoverLoc = nil
+                        }
+                    }
                     .overlay(alignment: .topLeading) {
-                        if let h = hovered, let item = items.first(where: { $0.id == h }) {
-                            hoverCard(item).padding(8).allowsHitTesting(false)
+                        // The info card follows the cursor (not a fixed corner), so
+                        // it's always next to what you're pointing at.
+                        if let h = hovered, let item = items.first(where: { $0.id == h }), let loc = hoverLoc {
+                            hoverCard(item)
+                                .frame(width: 240, alignment: .leading)
+                                .position(cardPosition(loc, in: geo.size))
+                                .allowsHitTesting(false)
                         }
                     }
                 }
@@ -87,9 +103,16 @@ struct TreemapView: View {
         .offset(x: b.rect.minX, y: b.rect.minY)
         .help([item.name, item.subtitle, item.badge, OffloadManager.formatBytes(item.bytes)]
             .compactMap { $0 }.joined(separator: " · "))
-        .onHover { hovered = $0 ? item.id : (hovered == item.id ? nil : hovered) }
         .onTapGesture { onTap(item) }
         .contextMenu { contextMenu(item) }
+    }
+
+    /// Place the floating card just above the cursor, clamped inside the map.
+    private func cardPosition(_ loc: CGPoint, in size: CGSize) -> CGPoint {
+        let cardW: CGFloat = 240, cardH: CGFloat = 60
+        let x = min(max(cardW / 2 + 6, loc.x), size.width - cardW / 2 - 6)
+        let y = min(max(cardH / 2 + 6, loc.y - 42), size.height - cardH / 2 - 6)
+        return CGPoint(x: x, y: y)
     }
 
     @ViewBuilder
@@ -107,25 +130,40 @@ struct TreemapView: View {
     }
 
     /// Floating card shown while hovering a block — the same key facts as a list
-    /// row: name, repo slug / path, status badge, and size.
+    /// row (name, slug/path, status, size), plus the reason it can't be acted on.
     private func hoverCard(_ item: MapItem) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(item.kind.fill).frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.name).font(.caption).fontWeight(.semibold)
-                if let s = item.subtitle, !s.isEmpty {
-                    Text(s).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Circle().fill(item.kind.fill).frame(width: 9, height: 9)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.name).font(.caption).fontWeight(.semibold).lineLimit(1)
+                    if let s = item.subtitle, !s.isEmpty {
+                        Text(s).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+                Text(OffloadManager.formatBytes(item.bytes))
+                    .font(.caption).foregroundColor(.secondary).monospacedDigit()
+            }
+            if (item.badge?.isEmpty == false) || (item.reason?.isEmpty == false) {
+                HStack(spacing: 5) {
+                    if let b = item.badge, !b.isEmpty {
+                        Text(b).font(.caption2)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.1)))
+                    }
+                    if let r = item.reason, !r.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "info.circle").font(.system(size: 9))
+                            Text(r).font(.caption2).lineLimit(2)
+                        }
+                        .foregroundColor(.secondary)
+                    }
                 }
             }
-            if let b = item.badge, !b.isEmpty {
-                Text(b).font(.caption2)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.primary.opacity(0.1)))
-            }
-            Text(OffloadManager.formatBytes(item.bytes))
-                .font(.caption).foregroundColor(.secondary).monospacedDigit()
         }
         .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12)))
         .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
