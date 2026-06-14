@@ -81,9 +81,11 @@ struct OffloadView: View {
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                         if manager.eligibleRepos.count > 1 {
-                            SizeThresholdSlider(repos: manager.eligibleRepos) { cutoff in
-                                manager.selectBySizeThreshold(minBytes: cutoff)
-                            }
+                            SizeThresholdSlider(
+                                repos: manager.eligibleRepos,
+                                onThreshold: { manager.selectBySizeThreshold(minBytes: $0) },
+                                onToggle: { manager.toggle($0) }
+                            )
                             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 2)
                         }
                         ForEach(sections) { section in

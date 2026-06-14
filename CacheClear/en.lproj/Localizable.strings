@@ -229,3 +229,4 @@
 "support.sheet.tagline" = "Free forever — paying is just a cheer for the author.";
 "support.sheet.perk_coffee" = "Buy the author a coffee";
 "support.sheet.perk_hide" = "Hide the card shown while uploading";
+"slider.selected_format" = "%d selected";

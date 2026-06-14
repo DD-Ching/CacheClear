@@ -229,3 +229,4 @@
 "support.sheet.tagline" = "永久免費・付費純粹是給作者打氣";
 "support.sheet.perk_coffee" = "請作者喝杯咖啡";
 "support.sheet.perk_hide" = "隱藏上傳時的支持小卡";
+"slider.selected_format" = "已選 %d 個";
