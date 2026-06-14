@@ -79,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             keyEquivalent: ""
         )
         sizeItem.tag = 100
+        sizeItem.image = menuIcon("internaldrive")
         menu.addItem(sizeItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -89,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             keyEquivalent: ""
         )
         clearItem.tag = 101
+        clearItem.image = menuIcon("trash")
         menu.addItem(clearItem)
 
         let deepCleanItem = NSMenuItem(
@@ -97,6 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             keyEquivalent: ""
         )
         deepCleanItem.tag = deepCleanMenuTag
+        deepCleanItem.image = menuIcon("sparkles")
         menu.addItem(deepCleanItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -107,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             keyEquivalent: ""
         )
         offloadItem.tag = offloadMenuTag
+        offloadItem.image = menuIcon("icloud.and.arrow.up")
         menu.addItem(offloadItem)
 
         let restoreItem = NSMenuItem(
@@ -115,6 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             keyEquivalent: ""
         )
         restoreItem.tag = restoreMenuTag
+        restoreItem.image = menuIcon("icloud.and.arrow.down")
         menu.addItem(restoreItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -124,6 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             action: #selector(openSettings),
             keyEquivalent: ","
         )
+        settingsItem.image = menuIcon("gearshape")
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -133,10 +139,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
+        quitItem.image = menuIcon("power")
         menu.addItem(quitItem)
 
         statusItem.menu = menu
         updateClearMenuShortcut(HotKeyManager.shared.currentShortcut)
+    }
+
+    /// A consistently-sized, template SF Symbol for menu items so every row reads
+    /// uniformly and adapts to light/dark.
+    private func menuIcon(_ symbol: String) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg)
+        image?.isTemplate = true
+        return image
     }
 
     private func setupHotKey() {
