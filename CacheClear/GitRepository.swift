@@ -94,6 +94,13 @@ struct RepoSafetyReport: Codable, Hashable {
     var lfsPresent = false
     var lfsToolMissing = false
     var largeBlobs: [String] = []
+    /// Committed mode-160000 gitlinks under .claude/worktrees — stray Claude Code
+    /// agent worktrees. They keep `git status` perpetually dirty; the pipeline
+    /// untracks + gitignores them so the tree can verify clean. Regenerable.
+    var strayWorktrees: [String] = []
+    /// Other unregistered gitlinks (no .gitmodules) — unknown nested repos that
+    /// may hold real work, so they BLOCK offload rather than being auto-cleaned.
+    var unregisteredGitlinks: [String] = []
     var blockingReasons: [String] = []
     var warnings: [String] = []
 

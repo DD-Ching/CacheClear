@@ -364,6 +364,21 @@ final class OffloadManager: ObservableObject {
             report.submodulesPresent = true
         }
 
+        // Committed gitlinks (mode 160000). .claude/worktrees/* are ephemeral
+        // Claude Code agent worktrees — handled automatically by the pipeline.
+        // Any other unregistered gitlink (no .gitmodules) is a hard block.
+        if let ls = try? await runner.git(["ls-files", "--stage"], in: topURL), ls.ok {
+            for line in ls.stdout.split(separator: "\n") where line.hasPrefix("160000 ") {
+                guard let tab = line.firstIndex(of: "\t") else { continue }
+                let path = String(line[line.index(after: tab)...])
+                if path.hasPrefix(".claude/worktrees/") {
+                    report.strayWorktrees.append(path)
+                } else if !report.submodulesPresent {
+                    report.unregisteredGitlinks.append(path)
+                }
+            }
+        }
+
         // LFS
         let attrs = topURL.appendingPathComponent(".gitattributes")
         if let s = try? String(contentsOf: attrs, encoding: .utf8), s.contains("filter=lfs") {
@@ -421,6 +436,7 @@ final class OffloadManager: ObservableObject {
         if r.lfsPresent && r.lfsToolMissing { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.lfs.headline", comment: "")); return }
         if !r.largeBlobs.isEmpty { r.status = .blocked; return }
         if r.submodulesPresent { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.submodule.headline", comment: "")); return }
+        if !r.unregisteredGitlinks.isEmpty { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.gitlink.headline", comment: "")); return }
         if r.diverged { r.status = .conflictRisk; return }
         if !r.secretOrDataIgnored.isEmpty { r.status = .hasLocalOnlySecrets; return }
         if !r.hasRemote { r.status = .noRemote; return }
@@ -492,6 +508,18 @@ final class OffloadManager: ObservableObject {
 
             // Step 2 — snapshot tracked + untracked-not-ignored
             step(.snapshot)
+            // Neutralise stray Claude Code agent worktrees first: untrack the
+            // committed gitlinks and gitignore the folder so `git status` can
+            // verify clean (otherwise their untracked junk keeps the tree dirty
+            // forever and the verify gate refuses to reclaim). Their tracked
+            // content shares the main repo's objects — already on GitHub — and
+            // only regenerable caches live inside; nothing is deleted here, and
+            // the change is committed and pushed.
+            let worktreesDir = dir.appendingPathComponent(".claude/worktrees")
+            if !repo.report.strayWorktrees.isEmpty || fm.fileExists(atPath: worktreesDir.path) {
+                _ = try? await runner.git(["rm", "-r", "--cached", "--ignore-unmatch", "--quiet", ".claude/worktrees"], in: dir)
+                appendIgnore(".claude/worktrees/", in: dir)
+            }
             try await runner.gitChecked(["add", "-A"], in: dir)
             let staged = try await runner.git(["diff", "--cached", "--quiet"], in: dir)
             if !staged.ok {  // non-zero ⇒ there is something staged
@@ -599,6 +627,20 @@ final class OffloadManager: ObservableObject {
         try writeStub(manifest)
         appendToIndex(manifest)
         return manifest
+    }
+
+    /// Append a pattern to .gitignore if not already present (idempotent).
+    private func appendIgnore(_ pattern: String, in dir: URL) {
+        let gi = dir.appendingPathComponent(".gitignore")
+        var contents = (try? String(contentsOf: gi, encoding: .utf8)) ?? ""
+        let trimmed = pattern.trimmingCharacters(in: .whitespaces)
+        let present = contents.split(separator: "\n").contains {
+            $0.trimmingCharacters(in: .whitespaces) == trimmed
+        }
+        if present { return }
+        if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
+        contents += "# CacheClear: ephemeral Claude Code agent worktrees\n\(pattern)\n"
+        try? contents.write(to: gi, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Stub + index

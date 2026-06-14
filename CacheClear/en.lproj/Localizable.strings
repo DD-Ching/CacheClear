@@ -230,3 +230,5 @@
 "support.sheet.perk_coffee" = "Buy the author a coffee";
 "support.sheet.perk_hide" = "Hide the card shown while uploading";
 "slider.selected_format" = "%d selected";
+"offload.group.will_tidy" = "Will tidy up (stray Claude worktrees)";
+"manager.block.gitlink.headline" = "Contains nested git folders not on GitHub";

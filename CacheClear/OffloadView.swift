@@ -311,6 +311,11 @@ struct OffloadView: View {
                           titleKey: "offload.group.will_reclaim",
                           summary: shortNames(paths), full: paths)
             }
+            if !r.strayWorktrees.isEmpty {
+                detailRow(icon: "sparkles", color: .teal,
+                          titleKey: "offload.group.will_tidy",
+                          summary: shortNames(r.strayWorktrees), full: r.strayWorktrees)
+            }
             if !lose.isEmpty {
                 detailRow(icon: "exclamationmark.triangle.fill", color: .orange,
                           titleKey: "offload.group.will_lose",
