@@ -20,6 +20,7 @@ struct OffloadView: View {
     @State private var expanded: Set<String> = []
     @State private var adviceRepo: ProjectRepo?
     @State private var showSupporterSheet = false
+    @State private var showConfirmOffload = false
 
     enum Mode: String, CaseIterable, Identifiable {
         case offload, restore
@@ -62,6 +63,12 @@ struct OffloadView: View {
             AdviceSheet(repo: repo) { action in handle(action, for: repo) }
         }
         .sheet(isPresented: $showSupporterSheet) { SupporterSheet() }
+        .sheet(isPresented: $showConfirmOffload) {
+            OffloadConfirmSheet { dontAskAgain in
+                if dontAskAgain { settings.skipOffloadConfirm = true }
+                runOffload()
+            }
+        }
         .onAppear { if mode == .restore { Task { await manager.refreshOffloads() } } }
         .task {
             // First open with nothing chosen → scan common locations automatically.
@@ -684,41 +691,13 @@ struct OffloadView: View {
             runOffload()
             return
         }
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = NSLocalizedString("offload.confirm.title", comment: "")
-        alert.informativeText = String(format: NSLocalizedString("offload.confirm.message", comment: ""),
-                                       manager.selectedRepos.count,
-                                       OffloadManager.formatBytes(manager.reclaimableBytes))
-        let confirm = alert.addButton(withTitle: NSLocalizedString("offload.confirm.confirm", comment: ""))
-        alert.addButton(withTitle: NSLocalizedString("offload.confirm.cancel", comment: ""))
-        confirm.hasDestructiveAction = true
-        confirm.isEnabled = false
-
-        let ack = NSButton(checkboxWithTitle: NSLocalizedString("offload.confirm.checkbox", comment: ""),
-                           target: nil, action: nil)
-        let gate = ConfirmGate()
-        gate.confirmButton = confirm
-        ack.target = gate
-        ack.action = #selector(ConfirmGate.toggle(_:))
-        ack.state = .off
-
-        let dontAsk = NSButton(checkboxWithTitle: NSLocalizedString("offload.confirm.dont_ask", comment: ""),
-                               target: nil, action: nil)
-        dontAsk.state = .off
-
-        let stack = NSStackView(views: [ack, dontAsk])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.layoutSubtreeIfNeeded()
-        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
-        alert.accessoryView = stack
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            if dontAsk.state == .on { settings.skipOffloadConfirm = true }
-            runOffload()
-        }
+        // Present a SwiftUI sheet rather than an NSAlert. NSAlert's accessory-view
+        // controls (the acknowledgement and "don't ask again" checkboxes) don't
+        // reliably draw until the alert window receives a mouse event — a known
+        // AppKit bug — so the boxes were invisible until clicked blindly, which
+        // could leave the destructive button permanently disabled. A sheet draws
+        // its controls immediately.
+        showConfirmOffload = true
     }
 
     private func runOffload() {
@@ -729,11 +708,70 @@ struct OffloadView: View {
     }
 }
 
-/// Keeps the destructive button disabled until the acknowledgement box is ticked.
-final class ConfirmGate: NSObject {
-    weak var confirmButton: NSButton?
-    @objc func toggle(_ sender: NSButton) {
-        confirmButton?.isEnabled = (sender.state == .on)
+// MARK: - Push & Reclaim confirmation sheet
+
+/// Confirmation before a destructive push & reclaim. A SwiftUI sheet replaces
+/// the old NSAlert: NSAlert's accessory-view controls don't reliably draw until
+/// the alert window gets a mouse event (a long-standing AppKit bug), so the
+/// checkboxes were invisible until clicked blindly. A sheet renders immediately
+/// and keeps the same two-gate behavior: the destructive button stays disabled
+/// until the acknowledgement toggle is on.
+struct OffloadConfirmSheet: View {
+    /// Called only when the user confirms; passes whether to skip future prompts.
+    var onConfirm: (_ dontAskAgain: Bool) -> Void
+
+    @ObservedObject private var manager = OffloadManager.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var acknowledged = false
+    @State private var dontAskAgain = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(.yellow)
+                Text(LocalizedStringKey("offload.confirm.title"))
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(String(format: NSLocalizedString("offload.confirm.message", comment: ""),
+                        manager.selectedRepos.count,
+                        OffloadManager.formatBytes(manager.reclaimableBytes)))
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: $acknowledged) {
+                    Text(LocalizedStringKey("offload.confirm.checkbox"))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Toggle(isOn: $dontAskAgain) {
+                    Text(LocalizedStringKey("offload.confirm.dont_ask"))
+                }
+            }
+            .toggleStyle(.checkbox)
+
+            HStack {
+                Spacer()
+                Button(LocalizedStringKey("offload.confirm.cancel")) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(role: .destructive) {
+                    onConfirm(dontAskAgain)
+                    dismiss()
+                } label: {
+                    Text(LocalizedStringKey("offload.confirm.confirm"))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(!acknowledged)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 }
 
