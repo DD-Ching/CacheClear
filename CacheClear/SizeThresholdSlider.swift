@@ -61,6 +61,13 @@ struct SizeThresholdSlider: View {
                       systemImage: "slider.horizontal.below.square.filled.and.square")
                     .font(.caption).foregroundColor(.secondary)
                 Spacer()
+                if t > 0 {
+                    // The threshold the handle currently encodes — without this
+                    // the only readout was the dots themselves.
+                    Text(String(format: NSLocalizedString("slider.cutoff_format", comment: ""),
+                                ByteFormat.string(cutoff)))
+                        .font(.caption).foregroundColor(.secondary).monospacedDigit()
+                }
                 Text(String(format: NSLocalizedString("slider.selected_format", comment: ""), selectedCount))
                     .font(.caption).fontWeight(.semibold).foregroundColor(.accentColor)
                     .monospacedDigit()
@@ -115,6 +122,20 @@ struct SizeThresholdSlider: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+        // The gesture-only control gets a standard adjustable element for
+        // VoiceOver/keyboard: each step moves the size threshold by 10%.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(LocalizedStringKey("slider.title"))
+        .accessibilityValue(Text(String(format: NSLocalizedString("slider.cutoff_format", comment: ""),
+                                        ByteFormat.string(cutoff))))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: t = min(1, t + 0.1)
+            case .decrement: t = max(0, t - 0.1)
+            @unknown default: break
+            }
+            onThreshold(cutoff)
+        }
     }
 
     private var handle: some View {
@@ -143,7 +164,7 @@ struct SizeThresholdSlider: View {
     }
 
     private func hoverLabel(_ r: ProjectRepo) -> some View {
-        Text("\(r.name) · \(OffloadManager.formatBytes(r.sizeBytes))")
+        Text("\(r.name) · \(ByteFormat.string(r.sizeBytes))")
             .font(.caption2).fontWeight(.medium)
             .lineLimit(1).fixedSize()
             .padding(.horizontal, 8).padding(.vertical, 3)

@@ -35,7 +35,7 @@
 "alert.ok" = "OK";
 
 "deep_clean.alert.title" = "Deep Clean";
-"deep_clean.alert.message" = "This will remove Xcode DerivedData, iOS Simulators, Device Support, Archives, SwiftPM/CocoaPods caches, and run Homebrew/npm cleanup. This may take time and cannot be undone. The next launch may take longer.";
+"deep_clean.alert.message" = "This moves Xcode DerivedData, simulator caches, Device Support and SwiftPM/CocoaPods caches to the Trash, deletes unavailable simulators, and runs Homebrew/npm cache cleanup. Trashed items are recoverable until you empty the Trash. The next build may take longer.";
 "deep_clean.alert.confirm" = "Deep Clean";
 "deep_clean.alert.cancel" = "Cancel";
 
@@ -259,3 +259,19 @@
 "offload.delete_no_push.confirm" = "Verify & Delete";
 "offload.error.delete_not_proven" = "Refused: your local copy still has commits or changes that aren't on GitHub — nothing was deleted. Use Push & Reclaim if you want to keep them.";
 "offload.error.no_remote_delete" = "This project has no GitHub remote to verify against, so it can't be safely deleted without pushing.";
+
+/* Redesign: progress, cancel, empty-state CTAs, a11y, banners */
+"offload.cancel_button" = "Cancel";
+"offload.queue_progress_format" = "Project %1$d of %2$d";
+"offload.scanning_count_format" = "Scanned %1$d of %2$d projects…";
+"offload.empty.cta_defaults" = "Scan Default Locations";
+"offload.empty.cta_choose" = "Choose Folder…";
+"offload.delete_no_push.ack" = "I understand the local copy of this project will be deleted after verification";
+"offload.a11y.details" = "Show details";
+"offload.a11y.dismiss" = "Dismiss";
+"offload.a11y.select_format" = "Select %@";
+"slider.cutoff_format" = "≥ %@";
+"accessibility.deep_clean_issues" = "Deep clean finished, but some steps failed";
+"manager.block.large.step_move" = "Or move the big file out of the repo, then offload";
+"manager.block.submodule.step_push" = "Push each submodule to its own remote first";
+"manager.conflict.step_resolve" = "Resolve the conflicts, then offload";

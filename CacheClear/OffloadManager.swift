@@ -68,6 +68,12 @@ final class OffloadManager: ObservableObject {
         case restoring(repo: String)
     }
 
+    /// Position in a multi-repo offload queue, for "project 2 of 5" progress.
+    struct QueueProgress: Equatable {
+        let done: Int
+        let total: Int
+    }
+
     @Published var rootURL: URL?
     @Published var scanScopeLabel: String = ""
     @Published var repos: [ProjectRepo] = []
@@ -78,6 +84,10 @@ final class OffloadManager: ObservableObject {
     @Published var offloads: [OffloadManifest] = []
     @Published var mapItems: [MapItem] = []
     @Published var sessionReclaimed: UInt64 = 0
+    @Published var queueProgress: QueueProgress?
+    /// Bumped by the menu bar's "Restore" item; the offload window switches to
+    /// the Restore tab when it changes.
+    @Published private(set) var restoreTabRequests = 0
 
     private let runner = GitCommandRunner.shared
     private let settings = OffloadSettings.shared
@@ -86,6 +96,13 @@ final class OffloadManager: ObservableObject {
     private var scanGeneration = 0
     private var sizeCache: [String: UInt64] = [:]
     private var mapTask: Task<Void, Never>?
+    private var cancelRequested = false
+    private var scanCancelRequested = false
+
+    /// How many repos are inspected/preflighted/sized concurrently. The wall
+    /// clock win comes from overlapping subprocess waits; beyond this the Mac
+    /// just thrashes on process spawns.
+    private static let scanConcurrency = 6
 
     var isBusy: Bool { phase != .idle }
     var isModelBackedAdvisor: Bool { AdvisorFactory.isModelBacked }
@@ -208,31 +225,77 @@ final class OffloadManager: ObservableObject {
     private func scan(roots: [URL], label: String) async {
         scanGeneration += 1
         let gen = scanGeneration
+        scanCancelRequested = false
         scanScopeLabel = label
         phase = .scanning
         results = [:]
         repos = []
         var seen = Set<String>()
         var found: [ProjectRepo] = []
+
+        var pending: [(path: String, root: URL)] = []
         for root in roots {
-            for p in discoverRepoPaths(under: root) {
-                statusLine = String(format: NSLocalizedString("offload.scanning_format", comment: ""),
-                                    (p as NSString).lastPathComponent)
-                guard let repo = await inspect(path: p, root: root) else { continue }
-                guard !seen.contains(repo.id) else { continue }
-                seen.insert(repo.id)
-                found.append(repo)
+            for p in discoverRepoPaths(under: root) { pending.append((p, root)) }
+        }
+
+        // Inspect repos concurrently: each inspection is ~15 subprocess waits,
+        // so overlapping them cuts scan wall-clock by roughly the concurrency
+        // factor. Results land on the main actor as they complete.
+        var scanned = 0
+        var cancelled = false
+        await withTaskGroup(of: ProjectRepo?.self) { group in
+            var next = 0
+            func addNext() {
+                guard next < pending.count else { return }
+                let (p, root) = pending[next]
+                next += 1
+                group.addTask { await self.inspect(path: p, root: root) }
+            }
+            for _ in 0..<Self.scanConcurrency { addNext() }
+            for await repo in group {
+                if gen != scanGeneration { group.cancelAll(); return }   // superseded by a newer scan
+                if let repo, !seen.contains(repo.id) {
+                    seen.insert(repo.id)
+                    found.append(repo)
+                }
+                if scanCancelRequested {
+                    cancelled = true
+                    group.cancelAll()
+                    break
+                }
+                scanned += 1
+                statusLine = String(format: NSLocalizedString("offload.scanning_count_format", comment: ""),
+                                    scanned, pending.count)
+                addNext()
             }
         }
+        guard gen == scanGeneration else { return }
+
+        // A cancelled scan keeps whatever it already discovered.
         found.sort { $0.sizeBytes > $1.sizeBytes }   // biggest first
         repos = found
         autoSelect()
         statusLine = ""
         phase = .idle
         await refreshOffloads()
+        guard !cancelled else { return }
         // The window is now interactive; confirm pushability over the network in
         // the background and update each badge as it resolves.
         await preflightEligible(gen: gen)
+    }
+
+    /// Abandon the current scan (the window's Cancel button). Anything already
+    /// discovered stays; in-flight git calls are cancelled.
+    func cancelScan() {
+        guard phase == .scanning else { return }
+        scanCancelRequested = true
+    }
+
+    /// Ask a running multi-repo offload to stop after the CURRENT project
+    /// finishes its pipeline. Never interrupts a project mid-flight — a repo is
+    /// either fully offloaded (verified) or untouched.
+    func cancelQueuedOffloads() {
+        cancelRequested = true
     }
 
     /// Network confirmation that each eligible repo can actually be pushed. Runs
@@ -245,19 +308,33 @@ final class OffloadManager: ObservableObject {
             guard s == .safeToOffload || s == .needsPushFirst || s == .noRemote else { continue }
             repos[i].preflight = repos[i].report.hasRemote ? .checking : .willCreateRepo
         }
-        let targets = repos.filter { $0.preflight == .checking }.map(\.id)
-        for id in targets {
-            if gen != scanGeneration { return }
-            guard let idx = repos.firstIndex(where: { $0.id == id }) else { continue }
-            let repo = repos[idx]
-            statusLine = String(format: NSLocalizedString("offload.preflight_format", comment: ""), repo.name)
-            let status = await preflightOne(repo)
-            if gen != scanGeneration { return }
-            guard let idx2 = repos.firstIndex(where: { $0.id == id }) else { continue }
-            repos[idx2].preflight = status
-            if case .problem = status {
-                repos[idx2].report.status = .conflictRisk
-                repos[idx2].isSelected = false
+        let targets = repos.filter { $0.preflight == .checking }
+        guard !targets.isEmpty else { return }
+        statusLine = String(format: NSLocalizedString("offload.preflight_format", comment: ""),
+                            targets[0].name)
+        // One ls-remote per repo, several in flight at once — the round trips
+        // overlap instead of queueing behind each other.
+        await withTaskGroup(of: (String, PreflightStatus).self) { group in
+            var next = 0
+            func addNext() {
+                guard next < targets.count else { return }
+                let repo = targets[next]
+                next += 1
+                group.addTask { (repo.id, await self.preflightOne(repo)) }
+            }
+            for _ in 0..<Self.scanConcurrency { addNext() }
+            for await (id, status) in group {
+                if gen != scanGeneration { group.cancelAll(); return }
+                if let idx = repos.firstIndex(where: { $0.id == id }) {
+                    statusLine = String(format: NSLocalizedString("offload.preflight_format", comment: ""),
+                                        repos[idx].name)
+                    repos[idx].preflight = status
+                    if case .problem = status {
+                        repos[idx].report.status = .conflictRisk
+                        repos[idx].isSelected = false
+                    }
+                }
+                addNext()
             }
         }
         if gen == scanGeneration { statusLine = "" }
@@ -269,7 +346,9 @@ final class OffloadManager: ObservableObject {
         if repo.report.isEmptyRepo { return .confirmed }   // initial push creates everything
         let branch = repo.report.defaultBranch
         let ref = branch.isEmpty ? "HEAD" : "refs/heads/\(branch)"
-        guard let ls = try? await runner.git(["ls-remote", "origin", ref], in: dir, network: true), ls.ok else {
+        // 30s is plenty for a single ls-remote; the 600s default would let one
+        // unreachable host stall the whole preflight pass.
+        guard let ls = try? await runner.git(["ls-remote", "origin", ref], in: dir, network: true, timeout: 30), ls.ok else {
             return .problem(NSLocalizedString("offload.preflight.unreachable", comment: ""))
         }
         if ls.out.isEmpty { return .confirmed }            // branch not on remote yet → push creates it
@@ -317,11 +396,12 @@ final class OffloadManager: ObservableObject {
         var report = RepoSafetyReport()
 
         // Remote
+        var remoteURL: String?
         if let url = try? await runner.git(["remote", "get-url", "origin"], in: topURL), url.ok, !url.out.isEmpty {
             report.hasRemote = true
             report.remoteIsGitHub = url.out.contains("github.com")
+            remoteURL = url.out
         }
-        let remoteURL = report.hasRemote ? (try? await runner.git(["remote", "get-url", "origin"], in: topURL).out) : nil
 
         // Branch / detached / empty
         let symRef = try? await runner.git(["symbolic-ref", "--short", "-q", "HEAD"], in: topURL)
@@ -396,6 +476,28 @@ final class OffloadManager: ObservableObject {
             report.lfsToolMissing = !(v?.ok ?? false)
         }
 
+        // Blobs over GitHub's 100 MB hard push limit anywhere in history (LFS
+        // repos excepted — their big files live in LFS, not as loose blobs).
+        // Without this check the push step would fail AFTER the snapshot commit.
+        // The output can be one line per object in the repo, so the parse runs
+        // OFF the main actor — six of these could otherwise stall the UI at once.
+        if !report.isEmptyRepo, !report.lfsPresent,
+           let blobs = try? await runner.git(["cat-file", "--batch-all-objects", "--unordered",
+                                              "--batch-check=%(objecttype) %(objectsize) %(objectname)"], in: topURL), blobs.ok {
+            let output = blobs.stdout
+            report.largeBlobs = await Task.detached(priority: .utility) { () -> [String] in
+                var found: [String] = []
+                for line in output.split(separator: "\n") {
+                    let f = line.split(separator: " ")
+                    guard f.count == 3, f[0] == "blob", let size = UInt64(f[1]),
+                          size > 100 * 1024 * 1024 else { continue }
+                    found.append("\(f[2].prefix(10)) (\(ByteFormat.string(size)))")
+                    if found.count >= 5 { break }
+                }
+                return found
+            }.value
+        }
+
         // Unpushed count (stale tracking refs; the live verify gate is authoritative)
         if report.hasRemote {
             let r = try? await runner.git(["rev-list", "--count", "--branches", "--tags", "--not", "--remotes"], in: topURL)
@@ -425,7 +527,7 @@ final class OffloadManager: ObservableObject {
             lastActivity = (try? topURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? nil
         }
 
-        let size = await runner.diskUsageBytes(toplevel)
+        let size = await DiskUsage.bytes(atPath: toplevel)
         let rel = relativePath(of: toplevel, under: root)
 
         return ProjectRepo(
@@ -443,7 +545,15 @@ final class OffloadManager: ObservableObject {
     private func classify(_ r: inout RepoSafetyReport) {
         if r.midOperation != nil { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.midop.headline", comment: "")); return }
         if r.lfsPresent && r.lfsToolMissing { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.lfs.headline", comment: "")); return }
-        if !r.largeBlobs.isEmpty { r.status = .blocked; return }
+        // Oversized blobs only block when a push would be NEEDED — a fully
+        // pushed repo already got them to the remote somehow, and delete-without-
+        // push never pushes at all.
+        let wouldNeedPush = !r.hasRemote || r.unpushedRefCount > 0 || r.dirtyTrackedCount > 0 || !r.untrackedFiles.isEmpty
+        if !r.largeBlobs.isEmpty && wouldNeedPush {
+            r.status = .blocked
+            r.blockingReasons.append(NSLocalizedString("manager.block.large.headline", comment: ""))
+            return
+        }
         if r.submodulesPresent { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.submodule.headline", comment: "")); return }
         if !r.unregisteredGitlinks.isEmpty { r.status = .blocked; r.blockingReasons.append(NSLocalizedString("manager.block.gitlink.headline", comment: "")); return }
         if r.diverged { r.status = .conflictRisk; return }
@@ -455,41 +565,43 @@ final class OffloadManager: ObservableObject {
 
     private func classifyIgnored(_ path: String) -> IgnoredFile.Kind {
         let lower = path.lowercased()
-        let name = (path as NSString).lastPathComponent.lowercased()
+        let name = (path as NSString).lastPathComponent
         let regenerable = ["node_modules", ".next", "build", "dist", "target", ".venv", "pods",
                            "deriveddata", ".build", "vendor", "__pycache__", ".gradle", ".cache"]
         if regenerable.contains(where: { lower.contains($0) }) { return .regenerable }
-        let secrets = [".env", "credentials", "service-account", "id_rsa", "id_ed25519",
-                       ".pem", ".key", ".p12", ".keystore", ".pfx", "secret"]
-        if secrets.contains(where: { name.contains($0) }) { return .secret }
-        let data = [".sqlite", ".db", ".dump", ".sql"]
-        if data.contains(where: { name.hasSuffix($0) }) { return .data }
+        if SecretHeuristics.isSecretName(name) { return .secret }
+        if SecretHeuristics.isDataName(name) { return .data }
         return .other
     }
 
     // MARK: - Advice (coordination manager)
 
     func advice(for repo: ProjectRepo) async -> OffloadAdvice {
-        let ctx = RepoAdviceContext(repo: repo, humanSize: Self.formatBytes(repo.sizeBytes))
+        let ctx = RepoAdviceContext(repo: repo, humanSize: ByteFormat.string(repo.sizeBytes))
         return await advisor.advise(ctx)
     }
 
     // MARK: - Offload pipeline
 
     func offloadSelected() async {
+        // Reentrancy: the button is disabled while busy, but the global hotkey
+        // and a double-fired sheet callback are not.
+        guard phase == .idle else { return }
+        cancelRequested = false
         let targets = selectedRepos
-        for repo in targets {
+        for (i, repo) in targets.enumerated() {
+            if cancelRequested { break }
+            queueProgress = QueueProgress(done: i, total: targets.count)
             await offloadOne(repo)
         }
+        queueProgress = nil
+        cancelRequested = false
         phase = .idle
         await refreshOffloads()
-        // Quick re-scan so the list reflects the new reality: offloaded repos drop
-        // out (they're now in Restore), and anything just pushed re-checks as
-        // up-to-date. Skipped if something failed, so the error stays visible.
-        let anyFailed = targets.contains { results[$0.id]?.state == .failed }
-        if !targets.isEmpty && !anyFailed {
-            await scan()
-        }
+        // Offloaded repos leave the list (their stub now lives in Restore);
+        // nothing else on disk changed, so no full rescan is needed. Failures
+        // stay visible with their badge.
+        repos.removeAll { results[$0.id]?.state == .offloaded }
     }
 
     private func offloadOne(_ repo: ProjectRepo) async {
@@ -569,7 +681,7 @@ final class OffloadManager: ObservableObject {
             let manifest = try await reclaim(repo: repo, dir: dir, remoteURL: remoteURL ?? repo.remoteURL ?? "")
             results[repo.id] = RepoResult(state: .offloaded,
                                           message: String(format: NSLocalizedString("offload.result.reclaimed_format", comment: ""),
-                                                          Self.formatBytes(manifest.reclaimedBytes)))
+                                                          ByteFormat.string(manifest.reclaimedBytes)))
         } catch {
             results[repo.id] = RepoResult(state: .failed, message: error.localizedDescription)
             lastError = error.localizedDescription
@@ -581,6 +693,7 @@ final class OffloadManager: ObservableObject {
     /// local has any commit/branch/tag or uncommitted change the remote lacks,
     /// this refuses and deletes nothing. Goes to Trash by default; leaves the stub.
     func deleteWithoutPush(_ repo: ProjectRepo) async {
+        guard phase == .idle else { return }
         let dir = URL(fileURLWithPath: repo.path)
         func step(_ s: OffloadStep) { phase = .offloading(repo: repo.name, step: s) }
         do {
@@ -600,10 +713,13 @@ final class OffloadManager: ObservableObject {
                 throw OffloadError.deleteNotProven
             }
             step(.reclaim)
-            let manifest = try await reclaim(repo: repo, dir: dir, remoteURL: remoteURL)
+            // forceTrash: the confirmation dialog promises "moves to the Trash
+            // (recoverable)", so this flow must honor it even when the offload
+            // preference says permanent.
+            let manifest = try await reclaim(repo: repo, dir: dir, remoteURL: remoteURL, forceTrash: true)
             results[repo.id] = RepoResult(state: .offloaded,
                 message: String(format: NSLocalizedString("offload.result.reclaimed_format", comment: ""),
-                                Self.formatBytes(manifest.reclaimedBytes)))
+                                ByteFormat.string(manifest.reclaimedBytes)))
         } catch {
             results[repo.id] = RepoResult(state: .failed, message: error.localizedDescription)
             lastError = error.localizedDescription
@@ -614,20 +730,73 @@ final class OffloadManager: ObservableObject {
 
     /// ALL gates must pass or we return false and the caller refuses to delete.
     private func verifyRemoteHasEverything(dir: URL) async throws -> Bool {
-        _ = try await runner.git(["fetch", "--prune", "--tags", "origin"], in: dir, network: true)
-        // (B) Primary proof: no local commit/branch/tag is absent from the remote.
-        let missing = try await runner.git(["rev-list", "--branches", "--tags", "--not", "--remotes=origin"], in: dir)
+        // (A) The fetch MUST succeed: the rev-list proof below reads
+        // refs/remotes/origin, and a silently failed fetch would let the gate
+        // pass on yesterday's stale tracking refs.
+        try await runner.gitChecked(["fetch", "--prune", "--tags", "origin"], in: dir, network: true)
+
+        // (B) Primary proof: no local commit — branch, tag, HEAD or stash — is
+        // absent from the remote. HEAD covers detached heads; stash entries are
+        // commits too and are invisible to --branches, which is exactly how
+        // delete-without-push could once drop the only copy of stashed work.
+        // Every proof term FAILS CLOSED: "ref absent" (exit 1 from
+        // rev-parse --verify -q) is the only acceptable reason to omit one; any
+        // other subprocess failure refuses the verify rather than silently
+        // shrinking the proof.
+        var startPoints = ["--branches", "--tags"]
+        let head = try await runner.git(["rev-parse", "--verify", "-q", "HEAD"], in: dir)
+        if head.ok {
+            startPoints.append("HEAD")
+        } else if head.exitCode != 1 {
+            return false   // couldn't prove whether HEAD exists — refuse
+        }
+        let stashRef = try await runner.git(["rev-parse", "--verify", "-q", "refs/stash"], in: dir)
+        if stashRef.ok {
+            // Stashes exist, so their enumeration is load-bearing: it must succeed.
+            let stashes = try await runner.gitChecked(["rev-list", "-g", "stash"], in: dir)
+            startPoints += stashes.stdout.split(separator: "\n").map(String.init)
+        } else if stashRef.exitCode != 1 {
+            return false   // couldn't prove whether stashes exist — refuse
+        }
+        let missing = try await runner.git(["rev-list"] + startPoints + ["--not", "--remotes=origin"], in: dir)
         guard missing.ok, missing.out.isEmpty else { return false }
+
         // (F) Working tree is clean — the snapshot captured everything trackable.
         let status = try await runner.git(["status", "--porcelain=v2", "--untracked-files=all"], in: dir)
         guard status.ok, status.out.isEmpty else { return false }
-        // (E) Network truth: the server itself reports refs.
+
+        // (E) Network truth: the server itself reports refs, and every branch WE
+        // hold a tracking ref for — the refs the rev-list proof in (B) actually
+        // relied on — still exists on the server at the same SHA. This catches a
+        // server-side force-push or branch deletion in the window since (A).
+        // Remote heads outside our fetch refspec (single-branch/shallow clones)
+        // never participated in the proof, so they are deliberately NOT required
+        // to have local counterparts — requiring that would false-block every
+        // narrow clone of a multi-branch repo.
         let ls = try await runner.git(["ls-remote", "--heads", "--tags", "origin"], in: dir, network: true)
         guard ls.ok, !ls.out.isEmpty else { return false }
+        var remoteHeads: [String: String] = [:]   // "main" -> sha
+        for line in ls.stdout.split(separator: "\n") {
+            let parts = line.split(whereSeparator: { $0 == "\t" || $0 == " " })
+            guard parts.count == 2 else { continue }
+            let sha = String(parts[0]), ref = String(parts[1])
+            guard ref.hasPrefix("refs/heads/") else { continue }   // tags don't move; heads are the risk
+            remoteHeads[String(ref.dropFirst("refs/heads/".count))] = sha
+        }
+        let refs = try await runner.git(["for-each-ref", "--format=%(refname:strip=3) %(objectname)",
+                                         "refs/remotes/origin"], in: dir)
+        guard refs.ok else { return false }
+        for line in refs.stdout.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let name = String(parts[0]), sha = String(parts[1])
+            if name == "HEAD" { continue }   // origin/HEAD symref, not a branch
+            guard remoteHeads[name] == sha else { return false }   // server changed since the fetch
+        }
         return true
     }
 
-    private func reclaim(repo: ProjectRepo, dir: URL, remoteURL: String) async throws -> OffloadManifest {
+    private func reclaim(repo: ProjectRepo, dir: URL, remoteURL: String, forceTrash: Bool = false) async throws -> OffloadManifest {
         let head = (try? await runner.git(["rev-parse", "HEAD"], in: dir).out) ?? ""
         let branch = (try? await runner.git(["symbolic-ref", "--short", "-q", "HEAD"], in: dir).out) ?? repo.report.defaultBranch
         var pushedRefs: [String: String] = [:]
@@ -643,6 +812,27 @@ final class OffloadManager: ObservableObject {
             visibility = v.out
         }
 
+        // Safety backstop (in addition to the verify gate): never reclaim a
+        // protected path — home, a top-level folder, a system dir or a volume.
+        guard PathSafety.isSafeToDelete(dir) else {
+            throw OffloadError.blocked(NSLocalizedString("offload.error.protected_path", comment: ""))
+        }
+        // Permanent delete is only honored when nothing UNPROVEN would be lost:
+        // gitignored secrets/data and other non-regenerable ignored files were
+        // never pushed to the remote, so if any exist we fall back to the Trash
+        // (recoverable) regardless of the permanent-delete setting.
+        let hasUnprovenLocalFiles = !repo.report.secretOrDataIgnored.isEmpty
+            || repo.report.ignoredFiles.contains { $0.kind == .other }
+        var usePermanent = settings.permanentDelete && !forceTrash && !hasUnprovenLocalFiles
+        if usePermanent {
+            // A secret/db can hide INSIDE a regenerable-named ignored dir (e.g.
+            // build/prod.env) which the collapsed directory scan never sees. Do a
+            // file-level scan; if found, fall back to Trash so it stays recoverable.
+            usePermanent = !(await ignoredTreeHasSecretsOrData(dir: dir))
+        }
+
+        // The manifest records what actually happened, not what the setting says
+        // — the Trash fallback above must show as "trash" in the restore stub.
         let manifest = OffloadManifest(
             projectName: repo.name,
             originalPath: repo.path,
@@ -653,38 +843,34 @@ final class OffloadManager: ObservableObject {
             pushedRefs: pushedRefs,
             repoVisibility: visibility,
             reclaimedBytes: repo.sizeBytes,
-            deletionMode: settings.deletionModeString,
+            deletionMode: usePermanent ? "permanent" : "trash",
             offloadedAt: Date(),
             appVersion: Self.appVersion(),
             verifiedRemote: true,
             backedUpSecrets: []
         )
 
-        // Safety backstop (in addition to the verify gate): never reclaim a
-        // protected path — home, a top-level folder, a system dir or a volume.
-        guard PathSafety.isSafeToDelete(dir) else {
-            throw OffloadError.blocked(NSLocalizedString("offload.error.protected_path", comment: ""))
+        // TOCTOU backstop: the verify gate proved the tree clean, but its network
+        // round trips take real seconds — anything saved into the tree since then
+        // would be deleted unproven. Re-check at the last possible moment.
+        let lastStatus = try await runner.git(["status", "--porcelain=v2", "--untracked-files=all"], in: dir)
+        guard lastStatus.ok, lastStatus.out.isEmpty else {
+            throw OffloadError.deleteNotProven
         }
+
         // Reclaim the whole working tree, then recreate the directory and drop the
-        // stub so the original path stays meaningful. Permanent delete is only
-        // honored when nothing UNPROVEN would be lost: gitignored secrets/data and
-        // other non-regenerable ignored files were never pushed to the remote, so
-        // if any exist we fall back to the Trash (recoverable) regardless of the
-        // permanent-delete setting.
-        let hasUnprovenLocalFiles = !repo.report.secretOrDataIgnored.isEmpty
-            || repo.report.ignoredFiles.contains { $0.kind == .other }
-        var usePermanent = settings.permanentDelete && !hasUnprovenLocalFiles
+        // stub so the original path stays meaningful. The delete runs off the main
+        // thread — trashing is fast, but a permanent rm of a multi-GB tree is not.
+        let target = dir
         if usePermanent {
-            // A secret/db can hide INSIDE a regenerable-named ignored dir (e.g.
-            // build/prod.env) which the collapsed directory scan never sees. Do a
-            // file-level scan; if found, fall back to Trash so it stays recoverable.
-            usePermanent = !(await ignoredTreeHasSecretsOrData(dir: dir))
-        }
-        if usePermanent {
-            try fm.removeItem(at: dir)
+            try await Task.detached(priority: .userInitiated) {
+                try FileManager.default.removeItem(at: target)
+            }.value
         } else {
-            var resulting: NSURL?
-            try fm.trashItem(at: dir, resultingItemURL: &resulting)
+            try await Task.detached(priority: .userInitiated) {
+                var resulting: NSURL?
+                try FileManager.default.trashItem(at: target, resultingItemURL: &resulting)
+            }.value
         }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         try writeStub(manifest)
@@ -700,13 +886,11 @@ final class OffloadManager: ObservableObject {
         guard let r = try? await runner.git(
             ["ls-files", "--others", "--ignored", "--exclude-standard"], in: dir), r.ok
         else { return true }   // can't enumerate → assume yes (route to Trash, safe)
-        let secrets = [".env", "credentials", "service-account", "id_rsa",
-                       "id_ed25519", ".pem", ".key", ".p12", ".keystore", ".pfx", "secret"]
-        let data = [".sqlite", ".db", ".dump", ".sql"]
         for line in r.stdout.split(separator: "\n") {
-            let name = (String(line) as NSString).lastPathComponent.lowercased()
-            if secrets.contains(where: { name.contains($0) }) { return true }
-            if data.contains(where: { name.hasSuffix($0) }) { return true }
+            let name = (String(line) as NSString).lastPathComponent
+            if SecretHeuristics.isSecretName(name) || SecretHeuristics.isDataName(name) {
+                return true
+            }
         }
         return false
     }
@@ -748,7 +932,7 @@ final class OffloadManager: ObservableObject {
         let parent = (m.originalPath as NSString).deletingLastPathComponent
         return String(format: NSLocalizedString("offload.readme_format", comment: ""),
                       m.projectName, m.remoteURL, m.defaultBranch, m.headSHA,
-                      df.string(from: m.offloadedAt), Self.formatBytes(m.reclaimedBytes),
+                      df.string(from: m.offloadedAt), ByteFormat.string(m.reclaimedBytes),
                       delText, parent)
     }
 
@@ -772,7 +956,13 @@ final class OffloadManager: ObservableObject {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted]
         enc.dateEncodingStrategy = .iso8601
-        if let data = try? enc.encode(all) { try? data.write(to: indexURL()) }
+        do {
+            try enc.encode(all).write(to: indexURL())
+        } catch {
+            // By the time the index is written the repo is already reclaimed —
+            // losing the entry would orphan the stub, so at least say so.
+            lastError = error.localizedDescription
+        }
     }
 
     private func appendToIndex(_ m: OffloadManifest) {
@@ -850,38 +1040,51 @@ final class OffloadManager: ObservableObject {
             }
         }
 
-        // 3) Size + threshold, publishing incrementally.
+        // 3) Size + threshold, publishing incrementally: already-cached sizes
+        // appear at once, the rest as each bounded-parallel `du` completes.
+        // Cancellation (stopMapBuild / a newer scan) is honored between sizes.
         let autoFloor: UInt64 = 50 * 1024 * 1024
         let showFloor: UInt64 = 200 * 1024 * 1024
-        for c in candidates {
-            guard gen == scanGeneration else { return }
-            let size: UInt64
-            if let cached = sizeCache[c.url.path] {
-                size = cached
-            } else {
-                size = await runner.diskUsageBytes(c.url.path)
-                sizeCache[c.url.path] = size
-            }
-            guard gen == scanGeneration else { return }
-            let floor = c.auto ? autoFloor : showFloor
-            guard size >= floor else { continue }
 
+        func appendItem(_ c: JunkCandidate, size: UInt64) {
+            let floor = c.auto ? autoFloor : showFloor
+            guard size >= floor else { return }
             // Avoid double-counting: shrink the owning repo's green block.
             if let owner = c.ownerRepoID, let gi = items.firstIndex(where: { $0.id == owner }) {
                 items[gi].bytes = items[gi].bytes > size ? items[gi].bytes - size : 0
             }
             items.append(MapItem(id: c.url.path, name: junkDisplayName(c.url), path: c.url.path,
                                  bytes: size, kind: c.auto ? .junkAuto : .junkShowOnly,
-                                 subtitle: homeTilde(c.url.path),
+                                 subtitle: PathDisplay.tilde(c.url.path),
                                  badge: NSLocalizedString(c.auto ? "map.badge.clearable" : "map.badge.regen", comment: ""),
                                  reason: c.auto ? nil : NSLocalizedString("map.reason.showonly", comment: "")))
-            mapItems = items.sorted { $0.bytes > $1.bytes }
         }
-    }
 
-    private func homeTilde(_ path: String) -> String {
-        let h = fm.homeDirectoryForCurrentUser.path
-        return path.hasPrefix(h + "/") ? "~" + path.dropFirst(h.count) : path
+        var unsized: [JunkCandidate] = []
+        for c in candidates {
+            if let cached = sizeCache[c.url.path] { appendItem(c, size: cached) } else { unsized.append(c) }
+        }
+        mapItems = items.sorted { $0.bytes > $1.bytes }
+
+        await withTaskGroup(of: (Int, UInt64).self) { group in
+            var next = 0
+            func addNext() {
+                guard next < unsized.count, !Task.isCancelled else { return }
+                let index = next
+                let path = unsized[index].url.path
+                next += 1
+                group.addTask { (index, await DiskUsage.bytes(atPath: path)) }
+            }
+            for _ in 0..<4 { addNext() }
+            for await (index, size) in group {
+                if Task.isCancelled || gen != scanGeneration { group.cancelAll(); return }
+                let c = unsized[index]
+                sizeCache[c.url.path] = size
+                appendItem(c, size: size)
+                mapItems = items.sorted { $0.bytes > $1.bytes }
+                addNext()
+            }
+        }
     }
 
     /// Disambiguate generically-named junk by including its parent folder, so a
@@ -915,8 +1118,10 @@ final class OffloadManager: ObservableObject {
             return
         }
         do {
-            var resulting: NSURL?
-            try fm.trashItem(at: url, resultingItemURL: &resulting)
+            try await Task.detached(priority: .userInitiated) {
+                var resulting: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+            }.value
             sessionReclaimed += item.bytes
             sizeCache.removeValue(forKey: item.path)
             mapItems.removeAll { $0.id == item.id }
@@ -928,26 +1133,38 @@ final class OffloadManager: ObservableObject {
     // MARK: - Restore
 
     func restore(_ m: OffloadManifest) async {
+        guard phase == .idle else { return }
         phase = .restoring(repo: m.projectName)
         defer { phase = .idle }
         let dir = URL(fileURLWithPath: m.originalPath)
         let parent = dir.deletingLastPathComponent()
         let temp = parent.appendingPathComponent(".cacheclear-restore-\(m.projectName)-\(UUID().uuidString.prefix(6))")
-        do {
-            // Only restore over a directory that holds nothing but our stub.
+
+        /// Only restore over a directory that holds nothing but our stub. Checked
+        /// once before the (slow, networked) clone AND once right before the
+        /// swap — anything saved into the stub folder during the clone must not
+        /// be deleted.
+        func holdsOnlyStub() -> Bool {
             let contents = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
-            let onlyStub = contents.allSatisfy {
+            return contents.allSatisfy {
                 $0 == OffloadManifest.stubFileName || $0 == OffloadManifest.readmeFileName || $0 == ".DS_Store"
             }
-            guard onlyStub else { throw OffloadError.restoreCollision }
+        }
+
+        do {
+            guard holdsOnlyStub() else { throw OffloadError.restoreCollision }
             guard PathSafety.isSafeToDelete(dir) else { throw OffloadError.restoreCollision }
 
             try await runner.gitChecked(["clone", m.remoteURL, temp.path], in: parent, network: true)
             if !m.defaultBranch.isEmpty {
                 _ = try? await runner.git(["checkout", m.defaultBranch], in: temp)
             }
-            try fm.removeItem(at: dir)
-            try fm.moveItem(at: temp, to: dir)
+
+            guard holdsOnlyStub() else { throw OffloadError.restoreCollision }
+            try await Task.detached(priority: .userInitiated) {
+                try FileManager.default.removeItem(at: dir)
+                try FileManager.default.moveItem(at: temp, to: dir)
+            }.value
 
             for s in m.backedUpSecrets {
                 let from = URL(fileURLWithPath: s.vaultPath)
@@ -966,6 +1183,12 @@ final class OffloadManager: ObservableObject {
         }
     }
 
+    /// Menu bar → "Restore": bring the window to the Restore tab with a fresh list.
+    func requestRestoreTab() {
+        restoreTabRequests += 1
+        Task { await refreshOffloads() }
+    }
+
     // MARK: - Helpers
 
     private func relativePath(of path: String, under root: URL) -> String {
@@ -978,12 +1201,5 @@ final class OffloadManager: ObservableObject {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(v) (\(b))"
-    }
-
-    static func formatBytes(_ bytes: UInt64) -> String {
-        let kb = Double(bytes) / 1024, mb = kb / 1024, gb = mb / 1024
-        if gb >= 1 { return String(format: "%.1f GB", gb) }
-        if mb >= 1 { return String(format: "%.1f MB", mb) }
-        return String(format: "%.0f KB", kb)
     }
 }

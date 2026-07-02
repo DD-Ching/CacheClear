@@ -35,7 +35,7 @@
 "alert.ok" = "好";
 
 "deep_clean.alert.title" = "深度清理";
-"deep_clean.alert.message" = "將清除 Xcode DerivedData、iOS 模擬器、Device Support、Archives、SwiftPM/CocoaPods 快取，並執行 Homebrew 與 npm 清理。此操作可能耗時且不可復原。下次開啟可能會更久。";
+"deep_clean.alert.message" = "將把 Xcode DerivedData、模擬器快取、Device Support 與 SwiftPM/CocoaPods 快取移到垃圾桶，刪除不可用的模擬器，並執行 Homebrew 與 npm 快取清理。移到垃圾桶的項目在清空垃圾桶前都可以復原。下次建置可能會較久。";
 "deep_clean.alert.confirm" = "開始清理";
 "deep_clean.alert.cancel" = "取消";
 
@@ -259,3 +259,19 @@
 "offload.delete_no_push.confirm" = "核對後刪除";
 "offload.error.delete_not_proven" = "已拒絕:本機還有 GitHub 上沒有的提交或變更,未刪除任何東西。若想保留請改用「推送並回收」。";
 "offload.error.no_remote_delete" = "這個專案沒有 GitHub 遠端可以核對,因此不能在不推送的情況下安全刪除。";
+
+/* Redesign: progress, cancel, empty-state CTAs, a11y, banners */
+"offload.cancel_button" = "取消";
+"offload.queue_progress_format" = "第 %1$d 個專案,共 %2$d 個";
+"offload.scanning_count_format" = "已掃描 %1$d / %2$d 個專案…";
+"offload.empty.cta_defaults" = "掃描預設位置";
+"offload.empty.cta_choose" = "選擇資料夾…";
+"offload.delete_no_push.ack" = "我了解驗證通過後,這個專案的本機副本將被刪除";
+"offload.a11y.details" = "顯示詳細資訊";
+"offload.a11y.dismiss" = "關閉";
+"offload.a11y.select_format" = "選取「%@」";
+"slider.cutoff_format" = "≥ %@";
+"accessibility.deep_clean_issues" = "深度清理完成,但部分步驟失敗";
+"manager.block.large.step_move" = "或先將大檔案移出 repo,再進行卸載";
+"manager.block.submodule.step_push" = "先將每個 submodule 推送到它自己的遠端";
+"manager.conflict.step_resolve" = "解決衝突後再卸載";

@@ -21,6 +21,8 @@ struct OffloadView: View {
     @State private var adviceRepo: ProjectRepo?
     @State private var showSupporterSheet = false
     @State private var showConfirmOffload = false
+    @State private var deleteNoPushRepo: ProjectRepo?
+    @State private var trashCandidate: MapItem?
 
     enum Mode: String, CaseIterable, Identifiable {
         case offload, restore
@@ -52,6 +54,8 @@ struct OffloadView: View {
 
             Divider()
 
+            if manager.lastError != nil { errorBanner }
+
             Group {
                 if mode == .offload { offloadPane }
                 else { restorePane }
@@ -69,7 +73,35 @@ struct OffloadView: View {
                 runOffload()
             }
         }
-        .onAppear { if mode == .restore { Task { await manager.refreshOffloads() } } }
+        .sheet(item: $deleteNoPushRepo) { repo in
+            DeleteWithoutPushSheet(repo: repo) {
+                Task { await manager.deleteWithoutPush(repo) }
+            }
+        }
+        .confirmationDialog(
+            Text(String(format: NSLocalizedString("map.trash.title", comment: ""),
+                        PathDisplay.tilde(trashCandidate?.path ?? ""))),
+            isPresented: Binding(get: { trashCandidate != nil },
+                                 set: { if !$0 { trashCandidate = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(LocalizedStringKey("map.trash.confirm"), role: .destructive) {
+                if let item = trashCandidate { Task { await manager.trashJunk(item) } }
+                trashCandidate = nil
+            }
+            Button(LocalizedStringKey("offload.confirm.cancel"), role: .cancel) { trashCandidate = nil }
+        } message: {
+            Text(String(format: NSLocalizedString("map.trash.message", comment: ""),
+                        ByteFormat.string(trashCandidate?.bytes ?? 0)))
+        }
+        .task(id: mode) {
+            // Entering the Restore tab always shows a fresh list.
+            if mode == .restore { await manager.refreshOffloads() }
+        }
+        .onChange(of: manager.restoreTabRequests) {
+            // The menu bar's "Restore" item routes here.
+            mode = .restore
+        }
         .task {
             // First open with nothing chosen → scan common locations automatically.
             if manager.rootURL == nil && manager.repos.isEmpty && !manager.isBusy {
@@ -80,6 +112,26 @@ struct OffloadView: View {
     }
 
     // MARK: - Offload pane
+
+    /// Failures were previously stored in `lastError` but never rendered —
+    /// a failed restore or junk-trash looked like a silent success.
+    private var errorBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red).font(.caption)
+            Text(manager.lastError ?? "")
+                .font(.caption)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button { manager.lastError = nil } label: {
+                Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(LocalizedStringKey("offload.a11y.dismiss"))
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Color.red.opacity(0.10))
+    }
 
     private var offloadPane: some View {
         VStack(spacing: 0) {
@@ -234,7 +286,7 @@ struct OffloadView: View {
             Spacer(minLength: 16)
             VStack(alignment: .trailing, spacing: 1) {
                 Text(LocalizedStringKey("offload.reclaim_space_label")).font(.caption).foregroundColor(.secondary)
-                Text(OffloadManager.formatBytes(manager.reclaimableBytes))
+                Text(ByteFormat.string(manager.reclaimableBytes))
                     .font(.system(size: 24, weight: .semibold)).foregroundColor(.accentColor)
                 Text(String(format: NSLocalizedString("offload.selected_count_format", comment: ""),
                             manager.selectedRepos.count))
@@ -284,7 +336,7 @@ struct OffloadView: View {
         HStack {
             Text(String(format: NSLocalizedString("offload.summary_format", comment: ""),
                         manager.selectedRepos.count,
-                        OffloadManager.formatBytes(manager.reclaimableBytes)))
+                        ByteFormat.string(manager.reclaimableBytes)))
                 .font(.callout)
             Spacer()
             Button(role: .destructive) { confirmAndOffload() } label: {
@@ -323,15 +375,26 @@ struct OffloadView: View {
                     preflightBadge(repo.preflight)
                     statusBadge(repo.report.status)
                 }
-                Text(OffloadManager.formatBytes(repo.sizeBytes))
+                Text(ByteFormat.string(repo.sizeBytes))
                     .font(.callout).foregroundColor(.secondary)
                     .frame(width: 72, alignment: .trailing)
+                // Still a real Button: the whole-row tap is a convenience on top,
+                // not a replacement — VoiceOver and keyboard need a focusable
+                // control to reach the details.
                 Button { toggleExpand(repo.id) } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                }.buttonStyle(.borderless)
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(LocalizedStringKey("offload.a11y.details"))
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .contentShape(Rectangle())
+            // The WHOLE row expands, not just the tiny chevron; the checkbox stays
+            // its own button and wins the hit test.
+            .onTapGesture { toggleExpand(repo.id) }
+            .background(RowHoverHighlight())
             .contextMenu {
                 Button(LocalizedStringKey("offload.reveal_finder")) { reveal(repo) }
             }
@@ -349,7 +412,10 @@ struct OffloadView: View {
                 Button { manager.toggle(repo.id) } label: {
                     Image(systemName: repo.isSelected ? "checkmark.square.fill" : "square")
                         .foregroundColor(repo.isSelected ? .accentColor : .secondary)
-                }.buttonStyle(.borderless)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(String(format: NSLocalizedString("offload.a11y.select_format", comment: ""), repo.name)))
+                .accessibilityValue(Text(repo.isSelected ? "1" : "0"))
             } else {
                 Image(systemName: "square.slash").foregroundColor(.secondary.opacity(0.5))
             }
@@ -451,25 +517,12 @@ struct OffloadView: View {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.path)])
     }
 
-    /// Abbreviate a home-relative path with ~ for compact, unambiguous display.
-    private func tildePath(_ p: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return p.hasPrefix(home + "/") ? "~" + p.dropFirst(home.count) : p
-    }
-
     /// Delete the local copy WITHOUT pushing (handed-off projects). Still verifies
-    /// the remote has everything first; goes to Trash; never pushes.
+    /// the remote has everything first; goes to Trash; never pushes. Presented as
+    /// a SwiftUI sheet with an acknowledgement gate — the same strength as the
+    /// push-and-reclaim confirm, since both end in a deleted working copy.
     private func confirmDeleteWithoutPush(_ repo: ProjectRepo) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(format: NSLocalizedString("offload.delete_no_push.title", comment: ""), repo.name)
-        alert.informativeText = NSLocalizedString("offload.delete_no_push.message", comment: "")
-        let del = alert.addButton(withTitle: NSLocalizedString("offload.delete_no_push.confirm", comment: ""))
-        alert.addButton(withTitle: NSLocalizedString("offload.confirm.cancel", comment: ""))
-        del.hasDestructiveAction = true
-        if alert.runModal() == .alertFirstButtonReturn {
-            Task { await manager.deleteWithoutPush(repo) }
-        }
+        deleteNoPushRepo = repo
     }
 
     // MARK: - Restore pane
@@ -497,7 +550,7 @@ struct OffloadView: View {
                     Text(m.remoteURL).font(.caption).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
-                Text(OffloadManager.formatBytes(m.reclaimedBytes)).font(.caption).foregroundColor(.secondary)
+                Text(ByteFormat.string(m.reclaimedBytes)).font(.caption).foregroundColor(.secondary)
                 Button(LocalizedStringKey("restore.button")) { Task { await manager.restore(m) } }
                     .disabled(manager.isBusy)
             }
@@ -520,26 +573,27 @@ struct OffloadView: View {
     }
 
     private func confirmTrash(_ item: MapItem) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        // Show the real path (e.g. ~/.gradle/caches), never a bare ambiguous name.
-        alert.messageText = String(format: NSLocalizedString("map.trash.title", comment: ""), tildePath(item.path))
-        alert.informativeText = String(format: NSLocalizedString("map.trash.message", comment: ""),
-                                       OffloadManager.formatBytes(item.bytes))
-        let del = alert.addButton(withTitle: NSLocalizedString("map.trash.confirm", comment: ""))
-        alert.addButton(withTitle: NSLocalizedString("offload.confirm.cancel", comment: ""))
-        del.hasDestructiveAction = true
-        if alert.runModal() == .alertFirstButtonReturn {
-            Task { await manager.trashJunk(item) }
-        }
+        // Shows the real path (e.g. ~/.gradle/caches) in a non-blocking SwiftUI
+        // confirmation dialog — see body. Never a bare ambiguous name.
+        trashCandidate = item
     }
 
     // MARK: - Shared
 
+    /// Empty states carry the action that fixes them instead of dead-ending.
     private func emptyState(_ key: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: "tray").font(.system(size: 34)).foregroundColor(.secondary)
             Text(LocalizedStringKey(key)).foregroundColor(.secondary)
+            if mode == .offload {
+                HStack(spacing: 8) {
+                    Button(LocalizedStringKey("offload.empty.cta_defaults")) {
+                        Task { await manager.scanDefaults() }
+                    }
+                    Button(LocalizedStringKey("offload.empty.cta_choose")) { chooseRoot() }
+                }
+                .disabled(manager.isBusy)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -549,12 +603,21 @@ struct OffloadView: View {
             Color.black.opacity(0.25).ignoresSafeArea()
             Group {
                 if isCardMoment && !supporter.isSupporter {
-                    SupporterCard { showSupporterSheet = true }
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    VStack(spacing: 12) {
+                        SupporterCard { showSupporterSheet = true }
+                        cancelButton
+                    }
+                    .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 } else {
                     VStack(spacing: 10) {
                         ProgressView()
                         Text(phaseText).font(.callout)
+                        if let p = manager.queueProgress, p.total > 1 {
+                            Text(String(format: NSLocalizedString("offload.queue_progress_format", comment: ""),
+                                        p.done + 1, p.total))
+                                .font(.caption).foregroundColor(.secondary).monospacedDigit()
+                        }
                         if !manager.statusLine.isEmpty {
                             Text(manager.statusLine).font(.caption).foregroundColor(.secondary)
                         }
@@ -562,6 +625,7 @@ struct OffloadView: View {
                             Text(LocalizedStringKey("support.card.thanks_member"))
                                 .font(.caption).foregroundColor(.secondary)
                         }
+                        cancelButton
                     }
                     .padding(24)
                 }
@@ -569,6 +633,25 @@ struct OffloadView: View {
             .background(.regularMaterial)
             .cornerRadius(12)
             .animation(.easeInOut(duration: 0.25), value: isCardMoment)
+        }
+    }
+
+    /// Scans cancel instantly; a queued offload stops after the current project
+    /// (a repo is either fully offloaded and verified, or untouched). Restores
+    /// are short and atomic, so they offer no cancel.
+    @ViewBuilder
+    private var cancelButton: some View {
+        switch manager.phase {
+        case .scanning:
+            Button(LocalizedStringKey("offload.cancel_button")) { manager.cancelScan() }
+                .keyboardShortcut(.cancelAction)
+        case .offloading:
+            if let p = manager.queueProgress, p.total > 1 {
+                Button(LocalizedStringKey("offload.cancel_button")) { manager.cancelQueuedOffloads() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        default:
+            EmptyView()
         }
     }
 
@@ -593,21 +676,10 @@ struct OffloadView: View {
     }
 
     private func statusBadge(_ status: SafetyStatus) -> some View {
-        let (key, color): (String, Color) = {
-            switch status {
-            case .safeToOffload: return ("offload.status.safe", .green)
-            case .needsPushFirst: return ("offload.status.push", .blue)
-            case .noRemote: return ("offload.status.no_remote", .orange)
-            case .hasLocalOnlySecrets: return ("offload.status.secrets", .red)
-            case .conflictRisk: return ("offload.status.conflict", .purple)
-            case .blocked: return ("offload.status.blocked", .red)
-            case .unknown: return ("offload.status.unknown", .gray)
-            }
-        }()
-        return Text(LocalizedStringKey(key))
+        Text(LocalizedStringKey(status.labelKey))
             .font(.caption2).fontWeight(.medium)
             .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(color.opacity(0.18)).foregroundColor(color).cornerRadius(5)
+            .background(status.tint.opacity(0.18)).foregroundColor(status.tint).cornerRadius(5)
     }
 
     @ViewBuilder
@@ -708,6 +780,88 @@ struct OffloadView: View {
     }
 }
 
+/// The badge colour for a safety status — lives beside the views so the model
+/// layer stays UI-free, but every surface (list + map) shares one mapping.
+extension SafetyStatus {
+    var tint: Color {
+        switch self {
+        case .safeToOffload: return .green
+        case .needsPushFirst: return .blue
+        case .noRemote: return .orange
+        case .hasLocalOnlySecrets: return .red
+        case .conflictRisk: return .purple
+        case .blocked: return .red
+        case .unknown: return .gray
+        }
+    }
+}
+
+/// Subtle hover wash for list rows, so the row reads as clickable.
+private struct RowHoverHighlight: View {
+    @State private var hovering = false
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(hovering ? 0.05 : 0))
+            .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Delete-without-pushing confirmation sheet
+
+/// The delete-without-push confirm, upgraded from a plain NSAlert to the same
+/// acknowledgement-gated sheet as push & reclaim — both flows end in a deleted
+/// working copy, so both get the same two-gate strength.
+struct DeleteWithoutPushSheet: View {
+    let repo: ProjectRepo
+    /// Called only when the user confirms.
+    var onConfirm: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var acknowledged = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(.yellow)
+                Text(String(format: NSLocalizedString("offload.delete_no_push.title", comment: ""), repo.name))
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(LocalizedStringKey("offload.delete_no_push.message"))
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle(isOn: $acknowledged) {
+                Text(LocalizedStringKey("offload.delete_no_push.ack"))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .toggleStyle(.checkbox)
+
+            HStack {
+                Spacer()
+                Button(LocalizedStringKey("offload.confirm.cancel")) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(role: .destructive) {
+                    onConfirm()
+                    dismiss()
+                } label: {
+                    Text(LocalizedStringKey("offload.delete_no_push.confirm"))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(!acknowledged)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+}
+
 // MARK: - Push & Reclaim confirmation sheet
 
 /// Confirmation before a destructive push & reclaim. A SwiftUI sheet replaces
@@ -738,7 +892,7 @@ struct OffloadConfirmSheet: View {
 
             Text(String(format: NSLocalizedString("offload.confirm.message", comment: ""),
                         manager.selectedRepos.count,
-                        OffloadManager.formatBytes(manager.reclaimableBytes)))
+                        ByteFormat.string(manager.reclaimableBytes)))
                 .font(.callout)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

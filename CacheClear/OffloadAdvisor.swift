@@ -158,7 +158,7 @@ struct RuleBasedOffloadAdvisor: OffloadAdvisor {
                 recommendation: .doNotOffload, severity: .blocking,
                 headline: L("manager.block.large.headline"),
                 explanation: L("manager.block.large.body", c.largeBlobs.prefix(3).joined(separator: ", ")),
-                steps: ["git lfs track \"<big file>\"", "或將大檔移出 repo 後再卸載"],
+                steps: ["git lfs track \"<big file>\"", L("manager.block.large.step_move")],
                 options: [reveal, skip, cancel], clarifyingQuestion: nil)
         }
         if c.submodulesPresent {
@@ -166,7 +166,7 @@ struct RuleBasedOffloadAdvisor: OffloadAdvisor {
                 recommendation: .doNotOffload, severity: .blocking,
                 headline: L("manager.block.submodule.headline"),
                 explanation: L("manager.block.submodule.body"),
-                steps: ["先個別將每個 submodule 推送到它自己的遠端"],
+                steps: [L("manager.block.submodule.step_push")],
                 options: [reveal, skip, cancel], clarifyingQuestion: nil)
         }
 
@@ -176,7 +176,7 @@ struct RuleBasedOffloadAdvisor: OffloadAdvisor {
                 recommendation: .resolveFirst, severity: .blocking,
                 headline: L("manager.conflict.diverged.headline"),
                 explanation: L("manager.conflict.diverged.body"),
-                steps: ["git pull --rebase origin \(c.defaultBranch)", "解決衝突後再卸載"],
+                steps: ["git pull --rebase origin \(c.defaultBranch)", L("manager.conflict.step_resolve")],
                 options: [reveal, skip, cancel],
                 clarifyingQuestion: L("manager.conflict.diverged.question"))
         }

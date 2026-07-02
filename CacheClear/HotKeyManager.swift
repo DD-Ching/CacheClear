@@ -22,6 +22,7 @@ class HotKeyManager: ObservableObject {
     private let shortcutKey = "savedShortcut"
 
     init() {
+        installHandlerIfNeeded()
         loadShortcut()
     }
 
@@ -40,6 +41,19 @@ class HotKeyManager: ObservableObject {
         }
     }
 
+    /// The Carbon event handler is installed exactly ONCE for the app's lifetime.
+    /// Installing it inside register() stacked a fresh handler on every shortcut
+    /// change and none were ever removed.
+    private func installHandlerIfNeeded() {
+        guard eventHandler == nil else { return }
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let handler: EventHandlerUPP = { _, event, _ -> OSStatus in
+            HotKeyManager.shared.onHotKeyPressed?()
+            return noErr
+        }
+        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, nil, &eventHandler)
+    }
+
     func register(shortcut: KeyShortcut) {
         unregister()
         currentShortcut = shortcut
@@ -49,14 +63,6 @@ class HotKeyManager: ObservableObject {
         hotKeyID.signature = OSType(0x4343_4C52) // "CCLR"
         hotKeyID.id = 1
 
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-
-        let handler: EventHandlerUPP = { _, event, _ -> OSStatus in
-            HotKeyManager.shared.onHotKeyPressed?()
-            return noErr
-        }
-
-        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, nil, &eventHandler)
         RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
