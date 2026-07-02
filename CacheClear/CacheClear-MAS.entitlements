@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store edition: the Mac App Store REQUIRES the App Sandbox, so this
+	     build ships only the sandbox-compatible feature set — Clear Cache on a
+	     user-selected folder (via security-scoped bookmarks), the hotkey and
+	     settings. GitHub Offload, Deep Clean's shell-outs and the supporter
+	     flow are compiled out behind MAS_BUILD; the full app ships via GitHub
+	     Releases with CacheClear.entitlements instead. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>

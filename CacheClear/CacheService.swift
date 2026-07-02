@@ -28,8 +28,32 @@ final class CacheService {
         let isAccessing = url.startAccessingSecurityScopedResource()
         guard isAccessing else { return nil }
         defer { url.stopAccessingSecurityScopedResource() }
+        #if MAS_BUILD
+        // Sandboxed: a spawned `du` does not inherit this process's
+        // security-scoped access, so size in-process. Slower, but correct.
+        return await Task.detached(priority: .userInitiated) {
+            Self.enumeratedSize(at: url)
+        }.value
+        #else
         return await DiskUsage.bytes(atPath: url.path)
+        #endif
     }
+
+    #if MAS_BUILD
+    /// In-process recursive allocated-size walk for the sandboxed edition —
+    /// hidden files included, matching `du`'s semantics as closely as possible.
+    nonisolated private static func enumeratedSize(at root: URL) -> UInt64 {
+        var total: UInt64 = 0
+        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
+            for case let fileURL as URL in enumerator {
+                if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
+                    total += UInt64(size)
+                }
+            }
+        }
+        return total
+    }
+    #endif
 
     /// Trash the contents of the selected cache folder. Returns the bytes
     /// trashed, or nil when no folder is set or it can't be accessed.

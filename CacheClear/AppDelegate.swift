@@ -91,6 +91,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         clearItem.image = menuIcon("trash")
         menu.addItem(clearItem)
 
+        // The App Store edition is sandboxed, which rules out Deep Clean's
+        // shell-outs and the whole git/gh-powered Offload feature — their menu
+        // items simply don't exist there.
+        #if !MAS_BUILD
         let deepCleanItem = NSMenuItem(
             title: NSLocalizedString("menu.deep_clean", comment: ""),
             action: #selector(deepClean),
@@ -121,6 +125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         menu.addItem(restoreItem)
 
         menu.addItem(NSMenuItem.separator())
+        #endif
 
         let settingsItem = NSMenuItem(
             title: NSLocalizedString("menu.settings", comment: ""),

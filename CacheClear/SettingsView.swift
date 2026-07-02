@@ -60,6 +60,10 @@ struct SettingsView: View {
                 Text(LocalizedStringKey("settings.cache_folder.subtitle"))
             }
 
+            // The sandboxed App Store edition has no Offload feature, and its
+            // external-checkout supporter flow isn't App Store-compliant — both
+            // sections exist only in the full (GitHub) edition.
+            #if !MAS_BUILD
             Section {
                 Stepper(value: $offloadSettings.inactiveDays, in: 1...365) {
                     LabeledContent(LocalizedStringKey("settings.offload.inactive_days")) {
@@ -104,6 +108,7 @@ struct SettingsView: View {
                     Text(LocalizedStringKey("support.settings.free_status"))
                 }
             }
+            #endif
         }
         .formStyle(.grouped)
         .frame(width: 420, height: 580)
