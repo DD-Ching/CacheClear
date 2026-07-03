@@ -370,16 +370,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSMenuDele
         setCacheOperationState(.clearing)
 
         Task { [weak self] in
-            let clearedSize = await CacheService.shared.clearCache()
+            let outcome = await CacheService.shared.clearCache()
             guard let self else { return }
             self.setCacheOperationState(.idle)
-            if let clearedSize {
-                self.showNotification(clearedSize: clearedSize)
-                self.refreshCacheSize()
-            } else {
+            guard let outcome else {
                 self.handleCacheFolderAccessFailure()
+                return
             }
+            self.handleClearOutcome(outcome)
         }
+    }
+
+    /// Reflect what the clear actually did. A blocked or failed delete must not
+    /// flash the success checkmark — otherwise the folder looks cleared while
+    /// still full on the next launch.
+    private func handleClearOutcome(_ outcome: CacheService.ClearOutcome) {
+        if outcome.trashedItems == 0 {
+            // Nothing moved: either the folder was unusable, or every item was
+            // blocked, or there was simply nothing to clear.
+            if outcome.folderUnusable || outcome.failedItems > 0 {
+                lastCleared = NSLocalizedString("notification.clear_failed", comment: "")
+                flashMenuBarIcon(
+                    systemSymbolName: "exclamationmark.triangle.fill",
+                    accessibilityKey: "accessibility.clear_failed"
+                )
+            } else {
+                // Already empty — a benign success.
+                showNotification(clearedSize: 0)
+            }
+            refreshCacheSize()
+            return
+        }
+
+        showNotification(clearedSize: outcome.clearedBytes)
+        if outcome.failedItems > 0 {
+            // Partial clear: some items couldn't be moved (e.g. in use or locked).
+            lastCleared = String(
+                format: NSLocalizedString("notification.cleared_partial_format", comment: ""),
+                ByteFormat.string(outcome.clearedBytes), outcome.failedItems
+            )
+        }
+        refreshCacheSize()
     }
 
     @objc func deepClean() {

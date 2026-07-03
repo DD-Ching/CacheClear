@@ -32,19 +32,27 @@ final class CacheService {
         // Sandboxed: a spawned `du` does not inherit this process's
         // security-scoped access, so size in-process. Slower, but correct.
         return await Task.detached(priority: .userInitiated) {
-            Self.enumeratedSize(at: url)
+            Self.allocatedSize(at: url)
         }.value
         #else
         return await DiskUsage.bytes(atPath: url.path)
         #endif
     }
 
-    #if MAS_BUILD
-    /// In-process recursive allocated-size walk for the sandboxed edition —
-    /// hidden files included, matching `du`'s semantics as closely as possible.
-    nonisolated private static func enumeratedSize(at root: URL) -> UInt64 {
+    /// Recursive allocated size of a file or directory — hidden files included,
+    /// matching `du`'s semantics as closely as possible. Used for the sandboxed
+    /// size walk and to report how much each cleared item actually freed.
+    /// (A directory URL's own `totalFileAllocatedSize` is ~nil, so summing the
+    /// tree is the only way to get a real number.)
+    nonisolated private static func allocatedSize(at url: URL) -> UInt64 {
+        let fileManager = FileManager.default
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        if !isDirectory {
+            let size = (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize
+            return UInt64(size ?? 0)
+        }
         var total: UInt64 = 0
-        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
+        if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
             for case let fileURL as URL in enumerator {
                 if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                     total += UInt64(size)
@@ -53,11 +61,21 @@ final class CacheService {
         }
         return total
     }
-    #endif
 
-    /// Trash the contents of the selected cache folder. Returns the bytes
-    /// trashed, or nil when no folder is set or it can't be accessed.
-    func clearCache() async -> UInt64? {
+    /// Result of a Clear Cache run. Distinguishes a real, verified clear from a
+    /// no-op so the UI can stop presenting a blocked/failed delete as success.
+    nonisolated struct ClearOutcome: Sendable {
+        var clearedBytes: UInt64 = 0
+        var trashedItems = 0
+        var failedItems = 0
+        /// The selected folder failed the clearable-location guard or couldn't
+        /// be enumerated — nothing was even attempted.
+        var folderUnusable = false
+    }
+
+    /// Trash the contents of the selected cache folder. Returns the outcome, or
+    /// nil when no folder is set or it can't be accessed.
+    func clearCache() async -> ClearOutcome? {
         guard let url = folderManager.selectedURL else { return nil }
         let isAccessing = url.startAccessingSecurityScopedResource()
         guard isAccessing else { return nil }
@@ -69,27 +87,39 @@ final class CacheService {
 
     /// Positively scoped: only a real cache location may be cleared, so a
     /// mis-selected folder can never be wiped. And it goes to the Trash
-    /// (recoverable), not a permanent delete.
-    nonisolated private static func clearContents(at cachesURL: URL) -> UInt64 {
+    /// (recoverable), not a permanent delete. Each item's size is credited only
+    /// after its move to the Trash actually succeeds, so a blocked or failed
+    /// delete is never reported as space freed.
+    nonisolated private static func clearContents(at cachesURL: URL) -> ClearOutcome {
+        var outcome = ClearOutcome()
         let fileManager = FileManager.default
-        var clearedSize: UInt64 = 0
 
         guard PathSafety.isClearableCacheLocation(cachesURL) else {
             NSLog("CacheClear: refused to clear non-cache location \(cachesURL.path)")
-            return 0
+            outcome.folderUnusable = true
+            return outcome
         }
 
-        if let contents = try? fileManager.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
-            for item in contents where PathSafety.isSafeToDelete(item) {
-                if let size = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
-                    clearedSize += UInt64(size)
-                }
+        guard let contents = try? fileManager.contentsOfDirectory(at: cachesURL, includingPropertiesForKeys: nil) else {
+            NSLog("CacheClear: could not read cache folder \(cachesURL.path)")
+            outcome.folderUnusable = true
+            return outcome
+        }
+
+        for item in contents where PathSafety.isSafeToDelete(item) {
+            let itemSize = allocatedSize(at: item)
+            do {
                 var resulting: NSURL?
-                try? fileManager.trashItem(at: item, resultingItemURL: &resulting)
+                try fileManager.trashItem(at: item, resultingItemURL: &resulting)
+                outcome.trashedItems += 1
+                outcome.clearedBytes += itemSize
+            } catch {
+                outcome.failedItems += 1
+                NSLog("CacheClear: failed to trash \(item.lastPathComponent): \(error.localizedDescription)")
             }
         }
 
-        return clearedSize
+        return outcome
     }
 
     // MARK: - Deep Clean

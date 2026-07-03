@@ -27,6 +27,8 @@
 "menu.cache_size_unavailable" = "Needs setup";
 
 "notification.cleared_format" = "Cleared %@";
+"notification.cleared_partial_format" = "Cleared %@ · %d items couldn't be moved";
+"notification.clear_failed" = "Couldn't clear the cache";
 
 "settings.window.title" = "Settings";
 
@@ -41,6 +43,7 @@
 
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "Cleared";
+"accessibility.clear_failed" = "Cache clear failed";
 "accessibility.deep_clean_done" = "Deep Clean Complete";
 
 /* ===== GitHub Offload & Reclaim ===== */

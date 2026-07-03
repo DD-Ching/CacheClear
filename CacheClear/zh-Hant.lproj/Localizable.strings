@@ -27,6 +27,8 @@
 "menu.cache_size_unavailable" = "需要設定";
 
 "notification.cleared_format" = "已清除 %@";
+"notification.cleared_partial_format" = "已清除 %@ · %d 個項目無法移動";
+"notification.clear_failed" = "無法清除快取";
 
 "settings.window.title" = "設定";
 
@@ -41,6 +43,7 @@
 
 "accessibility.app_icon" = "CacheClear";
 "accessibility.cleared_icon" = "已清除";
+"accessibility.clear_failed" = "快取清除失敗";
 "accessibility.deep_clean_done" = "深度清理完成";
 
 /* ===== GitHub Offload & Reclaim ===== */
