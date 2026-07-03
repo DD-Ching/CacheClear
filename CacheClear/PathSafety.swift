@@ -16,7 +16,7 @@
 
 import Foundation
 
-enum PathSafety {
+nonisolated enum PathSafety {
     private static func canonical(_ url: URL) -> String {
         url.resolvingSymlinksInPath().standardizedFileURL.path
     }

@@ -83,7 +83,7 @@ struct TreemapView: View {
                             .lineLimit(1).truncationMode(.middle)
                     }
                     if showSize {
-                        Text(OffloadManager.formatBytes(item.bytes)).font(.system(size: 9)).opacity(0.9)
+                        Text(ByteFormat.string(item.bytes)).font(.system(size: 9)).opacity(0.9)
                     }
                 }
                 .foregroundColor(item.kind.textColor)
@@ -93,7 +93,7 @@ struct TreemapView: View {
         }
         .frame(width: w, height: h)
         .offset(x: b.rect.minX, y: b.rect.minY)
-        .help([item.name, item.subtitle, item.badge, OffloadManager.formatBytes(item.bytes)]
+        .help([item.name, item.subtitle, item.badge, ByteFormat.string(item.bytes)]
             .compactMap { $0 }.joined(separator: " · "))
         .onHover { inside in
             if inside { hovered = item.id; hoveredRect = b.rect }
@@ -101,6 +101,14 @@ struct TreemapView: View {
         }
         .onTapGesture { onTap(item) }
         .contextMenu { contextMenu(item) }
+        // The treemap is pure custom drawing — expose each block to VoiceOver
+        // with the same facts a sighted user gets from the hover card.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(item.name))
+        .accessibilityValue(Text([ByteFormat.string(item.bytes), item.badge, item.reason]
+            .compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onTap(item) }
     }
 
     /// Place the floating card centered on the hovered block, above it when there
@@ -140,7 +148,7 @@ struct TreemapView: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Text(OffloadManager.formatBytes(item.bytes))
+                Text(ByteFormat.string(item.bytes))
                     .font(.caption).foregroundColor(.secondary).monospacedDigit()
             }
             if (item.badge?.isEmpty == false) || (item.reason?.isEmpty == false) {
@@ -169,18 +177,20 @@ struct TreemapView: View {
 
     private var legend: some View {
         HStack(spacing: 14) {
-            legendDot(.green, "map.legend.repo")
-            legendDot(.red, "map.legend.junk")
-            legendDot(.orange, "map.legend.regen")
-            legendDot(Color(nsColor: .systemGray), "map.legend.other")
+            // The dots use the SAME fills as the blocks — a paler legend swatch
+            // next to a saturated block reads as two different categories.
+            legendDot(MapKind.repo.fill, "map.legend.repo")
+            legendDot(MapKind.junkAuto.fill, "map.legend.junk")
+            legendDot(MapKind.junkShowOnly.fill, "map.legend.regen")
+            legendDot(MapKind.other.fill, "map.legend.other")
             Spacer()
             if sessionReclaimed > 0 {
                 Text(String(format: NSLocalizedString("map.reclaimed_format", comment: ""),
-                            OffloadManager.formatBytes(sessionReclaimed)))
+                            ByteFormat.string(sessionReclaimed)))
                     .font(.caption).foregroundColor(.green)
             }
             Text(String(format: NSLocalizedString("map.mapped_format", comment: ""),
-                        items.count, OffloadManager.formatBytes(total)))
+                        items.count, ByteFormat.string(total)))
                 .font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
@@ -188,7 +198,7 @@ struct TreemapView: View {
 
     private func legendDot(_ color: Color, _ key: String) -> some View {
         HStack(spacing: 4) {
-            Circle().fill(color.opacity(0.8)).frame(width: 9, height: 9)
+            Circle().fill(color).frame(width: 9, height: 9)
             Text(LocalizedStringKey(key)).font(.caption2).foregroundColor(.secondary)
         }
     }

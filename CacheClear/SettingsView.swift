@@ -17,15 +17,11 @@ struct SettingsView: View {
     @State private var showSupporterSheet = false
 
     var body: some View {
-        ScrollView {
-        VStack(spacing: 16) {
-            // 快捷鍵設定區
-            GroupBox(LocalizedStringKey("settings.hotkey.group_title")) {
-                VStack(spacing: 8) {
-                    Text(LocalizedStringKey("settings.hotkey.subtitle"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
+        // A native grouped Form (the standard macOS settings look) instead of
+        // hand-stacked GroupBoxes in a ScrollView.
+        Form {
+            Section {
+                LabeledContent {
                     ShortcutRecorderView(
                         isRecording: $isRecording,
                         currentShortcut: hotKeyManager.currentShortcut,
@@ -33,106 +29,89 @@ struct SettingsView: View {
                             hotKeyManager.register(shortcut: shortcut)
                         }
                     )
-
-                    HStack {
-                        Text(LocalizedStringKey("settings.hotkey.current_label"))
-                            .foregroundColor(.secondary)
-                        Text(hotKeyManager.currentShortcut?.displayString ?? NSLocalizedString("settings.hotkey.unset", comment: ""))
-                            .fontWeight(.medium)
-                    }
-                    .font(.caption)
+                } label: {
+                    Text(LocalizedStringKey("settings.hotkey.current_label"))
+                    Text(hotKeyManager.currentShortcut?.displayString ?? NSLocalizedString("settings.hotkey.unset", comment: ""))
                 }
-                .padding(.vertical, 8)
+            } header: {
+                Label(LocalizedStringKey("settings.hotkey.group_title"), systemImage: "keyboard")
+            } footer: {
+                Text(LocalizedStringKey("settings.hotkey.subtitle"))
             }
 
-            GroupBox(LocalizedStringKey("settings.cache_folder.group_title")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey("settings.cache_folder.subtitle"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        Text(LocalizedStringKey("settings.cache_folder.current_label"))
-                            .foregroundColor(.secondary)
-                        Text(cacheFolderManager.displayPath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+            Section {
+                LabeledContent(LocalizedStringKey("settings.cache_folder.current_label")) {
+                    Text(cacheFolderManager.displayPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(LocalizedStringKey("settings.cache_folder.choose_button")) {
+                        cacheFolderManager.chooseFolder()
                     }
-                    .font(.caption)
-
-                    HStack {
-                        Button(LocalizedStringKey("settings.cache_folder.choose_button")) {
-                            cacheFolderManager.chooseFolder()
-                        }
-                        Button(LocalizedStringKey("settings.cache_folder.clear_button")) {
-                            cacheFolderManager.clearSelection()
-                        }
+                    Button(LocalizedStringKey("settings.cache_folder.clear_button")) {
+                        cacheFolderManager.clearSelection()
                     }
                 }
-                .padding(.vertical, 8)
+            } header: {
+                Label(LocalizedStringKey("settings.cache_folder.group_title"), systemImage: "folder")
+            } footer: {
+                Text(LocalizedStringKey("settings.cache_folder.subtitle"))
             }
 
-            GroupBox(LocalizedStringKey("settings.offload.group_title")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(LocalizedStringKey("settings.offload.subtitle"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Stepper(value: $offloadSettings.inactiveDays, in: 1...365) {
-                        Text("\(NSLocalizedString("settings.offload.inactive_days", comment: "")): \(offloadSettings.inactiveDays)")
-                            .font(.caption)
-                    }
-
-                    Toggle(isOn: $offloadSettings.autoCreatePrivate) {
-                        Text(LocalizedStringKey("settings.offload.auto_create")).font(.caption)
-                    }
-
-                    Picker(selection: $offloadSettings.permanentDelete) {
-                        Text(LocalizedStringKey("settings.offload.deletion_trash")).tag(false)
-                        Text(LocalizedStringKey("settings.offload.deletion_permanent")).tag(true)
-                    } label: {
-                        Text(LocalizedStringKey("settings.offload.deletion_mode")).font(.caption)
-                    }
-                    .pickerStyle(.segmented)
-
-                    Toggle(isOn: Binding(
-                        get: { !offloadSettings.skipOffloadConfirm },
-                        set: { offloadSettings.skipOffloadConfirm = !$0 }
-                    )) {
-                        Text(LocalizedStringKey("settings.offload.confirm_each")).font(.caption)
-                    }
-
-                    Button(LocalizedStringKey("settings.offload.open_button")) {
-                        AppDelegate.shared?.openOffloadWindow()
+            // The sandboxed App Store edition has no Offload feature, and its
+            // external-checkout supporter flow isn't App Store-compliant — both
+            // sections exist only in the full (GitHub) edition.
+            #if !MAS_BUILD
+            Section {
+                Stepper(value: $offloadSettings.inactiveDays, in: 1...365) {
+                    LabeledContent(LocalizedStringKey("settings.offload.inactive_days")) {
+                        Text("\(offloadSettings.inactiveDays)")
                     }
                 }
-                .padding(.vertical, 8)
+                Toggle(LocalizedStringKey("settings.offload.auto_create"),
+                       isOn: $offloadSettings.autoCreatePrivate)
+                Picker(LocalizedStringKey("settings.offload.deletion_mode"),
+                       selection: $offloadSettings.permanentDelete) {
+                    Text(LocalizedStringKey("settings.offload.deletion_trash")).tag(false)
+                    Text(LocalizedStringKey("settings.offload.deletion_permanent")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                Toggle(LocalizedStringKey("settings.offload.confirm_each"),
+                       isOn: Binding(
+                           get: { !offloadSettings.skipOffloadConfirm },
+                           set: { offloadSettings.skipOffloadConfirm = !$0 }
+                       ))
+                Button(LocalizedStringKey("settings.offload.open_button")) {
+                    AppDelegate.shared?.openOffloadWindow()
+                }
+            } header: {
+                Label(LocalizedStringKey("settings.offload.group_title"), systemImage: "icloud.and.arrow.up")
+            } footer: {
+                Text(LocalizedStringKey("settings.offload.subtitle"))
             }
 
-            GroupBox(LocalizedStringKey("support.settings.group_title")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if supporterStore.isSupporter {
-                        Label(LocalizedStringKey("support.settings.member_status"), systemImage: "heart.fill")
-                            .foregroundColor(.pink)
-                            .font(.callout)
-                    } else {
-                        Text(LocalizedStringKey("support.settings.free_status"))
-                            .font(.caption).foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button(LocalizedStringKey("support.settings.support_button")) {
-                            showSupporterSheet = true
-                        }
+            Section {
+                if supporterStore.isSupporter {
+                    Label(LocalizedStringKey("support.settings.member_status"), systemImage: "heart.fill")
+                        .foregroundStyle(.pink)
+                } else {
+                    Button(LocalizedStringKey("support.settings.support_button")) {
+                        showSupporterSheet = true
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
+            } header: {
+                Label(LocalizedStringKey("support.settings.group_title"), systemImage: "heart")
+            } footer: {
+                if !supporterStore.isSupporter {
+                    Text(LocalizedStringKey("support.settings.free_status"))
+                }
             }
+            #endif
         }
-        .padding(20)
-        .frame(width: 380)
-        }
-        .frame(width: 380, height: 560)
+        .formStyle(.grouped)
+        .frame(width: 420, height: 580)
         .sheet(isPresented: $showSupporterSheet) { SupporterSheet() }
     }
 }

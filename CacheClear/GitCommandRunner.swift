@@ -9,7 +9,7 @@
 
 import Foundation
 
-struct CommandResult: Sendable {
+nonisolated struct CommandResult: Sendable {
     let exitCode: Int32
     let stdout: String
     let stderr: String
@@ -22,7 +22,7 @@ struct CommandResult: Sendable {
     }
 }
 
-struct CommandError: Error, LocalizedError {
+nonisolated struct CommandError: Error, LocalizedError {
     let command: String
     let result: CommandResult
     var errorDescription: String? {
@@ -57,7 +57,9 @@ actor GitCommandRunner {
         env["LC_ALL"] = "en_US.UTF-8"
         env["GIT_TERMINAL_PROMPT"] = "0"          // never block the GUI on an invisible prompt
         env["GIT_ASKPASS"] = "/usr/bin/false"
-        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i \(home)/.ssh/id_rsa"
+        // No -i here: forcing id_rsa broke every ed25519-only setup. ssh already
+        // tries the user's configured/default identities; we only forbid prompts.
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
         return env
     }
 
@@ -97,72 +99,91 @@ actor GitCommandRunner {
         return try await run(launchPath: gh, args: args, cwd: cwd, timeout: timeout)
     }
 
-    /// On-disk size of a directory via `du -sk`, in bytes. Returns 0 on failure.
-    func diskUsageBytes(_ path: String) async -> UInt64 {
-        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-        guard let r = try? await run(launchPath: "/usr/bin/du", args: ["-sk", path], cwd: parent, timeout: 180),
-              r.ok else { return 0 }
-        let field = r.out.split(whereSeparator: { $0 == "\t" || $0 == " " }).first.map(String.init) ?? "0"
-        return (UInt64(field) ?? 0) * 1024
-    }
-
     private func run(launchPath: String, args: [String], cwd: URL, timeout: TimeInterval) async throws -> CommandResult {
+        // A caller cancelled before we even spawned (superseded scan, closed
+        // window) shouldn't burn a subprocess.
+        try Task.checkCancellation()
         let env = environment()
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CommandResult, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: launchPath)
-            process.arguments = args
-            process.currentDirectoryURL = cwd
-            process.environment = env
+        let process = Process()
+        // Cancellation-aware: a cancelled caller terminates the child instead of
+        // leaving git/clone running to completion.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CommandResult, Error>) in
+                process.executableURL = URL(fileURLWithPath: launchPath)
+                process.arguments = args
+                process.currentDirectoryURL = cwd
+                process.environment = env
 
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            process.standardOutput = outPipe
-            process.standardError = errPipe
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError = errPipe
 
-            // Drain both pipes concurrently so a large stream on one side cannot
-            // deadlock against a full 64KB buffer on the other.
-            final class Buffers: @unchecked Sendable { var out = Data(); var err = Data() }
-            let buffers = Buffers()
-            let group = DispatchGroup()
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                buffers.out = outPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                buffers.err = errPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
+                // Drain both pipes concurrently so a large stream on one side cannot
+                // deadlock against a full 64KB buffer on the other. The lock makes
+                // the timed-out snapshot below safe against a late-finishing drain.
+                final class Buffers: @unchecked Sendable {
+                    private let lock = NSLock()
+                    private var out = Data()
+                    private var err = Data()
+                    func setOut(_ d: Data) { lock.lock(); out = d; lock.unlock() }
+                    func setErr(_ d: Data) { lock.lock(); err = d; lock.unlock() }
+                    func snapshot() -> (Data, Data) { lock.lock(); defer { lock.unlock() }; return (out, err) }
+                }
+                let buffers = Buffers()
+                let group = DispatchGroup()
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    buffers.setOut(outPipe.fileHandleForReading.readDataToEndOfFile())
+                    group.leave()
+                }
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    buffers.setErr(errPipe.fileHandleForReading.readDataToEndOfFile())
+                    group.leave()
+                }
 
-            let resumed = ResumeOnce()
-            process.terminationHandler = { proc in
-                group.wait()
-                let result = CommandResult(
-                    exitCode: proc.terminationStatus,
-                    stdout: String(decoding: buffers.out, as: UTF8.self),
-                    stderr: String(decoding: buffers.err, as: UTF8.self)
-                )
-                resumed.fire { continuation.resume(returning: result) }
-            }
+                let resumed = ResumeOnce()
+                let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+                process.terminationHandler = { proc in
+                    watchdog.cancel()
+                    // Bounded wait: a grandchild (e.g. a stuck credential helper)
+                    // that inherited our pipes can hold them open past git's exit.
+                    // If EOF never comes, the output is UNTRUSTWORTHY — synthesize
+                    // a failure exit so no caller (least of all the verify gate)
+                    // mistakes truncated-empty output for a clean success.
+                    let drained = group.wait(timeout: .now() + 10) == .success
+                    let (out, err) = buffers.snapshot()
+                    let exitCode: Int32
+                    if drained {
+                        exitCode = proc.terminationStatus
+                    } else {
+                        exitCode = proc.terminationStatus != 0 ? proc.terminationStatus : 124
+                    }
+                    let result = CommandResult(
+                        exitCode: exitCode,
+                        stdout: String(decoding: out, as: UTF8.self),
+                        stderr: String(decoding: err, as: UTF8.self)
+                    )
+                    resumed.fire { continuation.resume(returning: result) }
+                }
 
-            do {
-                try process.run()
-            } catch {
-                resumed.fire { continuation.resume(throwing: error) }
-                return
+                do {
+                    try process.run()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                } catch {
+                    watchdog.cancel()
+                    resumed.fire { continuation.resume(throwing: error) }
+                }
             }
-
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                if process.isRunning { process.terminate() }
-            }
+        } onCancel: {
+            if process.isRunning { process.terminate() }
         }
     }
 }
 
 /// Guards a CheckedContinuation against being resumed more than once.
-private final class ResumeOnce: @unchecked Sendable {
+nonisolated final class ResumeOnce: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
     func fire(_ block: () -> Void) {

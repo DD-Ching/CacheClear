@@ -69,14 +69,6 @@ final class CacheFolderManager: ObservableObject {
         selectedURL = nil
     }
 
-    func withSecurityScopedAccess<T>(_ handler: (URL) throws -> T) rethrows -> T? {
-        guard let url = selectedURL else { return nil }
-        let isAccessing = url.startAccessingSecurityScopedResource()
-        guard isAccessing else { return nil }
-        defer { url.stopAccessingSecurityScopedResource() }
-        return try handler(url)
-    }
-
     private func setSelectedURL(_ url: URL) {
         selectedURL = url
         UserDefaults.standard.set(url.path, forKey: pathKey)

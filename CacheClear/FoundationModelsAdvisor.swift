@@ -17,19 +17,21 @@ import FoundationModels
 @available(macOS 26.0, *)
 @Generable
 struct GeneratedAdvice {
-    @Guide(description: "Exactly one of: safeToOffload, pushThenOffload, resolveFirst, doNotOffload")
+    // Guided generation: the model can only emit one of the four valid values,
+    // instead of free-form text we then have to parse defensively.
+    @Guide(description: "The recommendation", .anyOf(["safeToOffload", "pushThenOffload", "resolveFirst", "doNotOffload"]))
     var recommendation: String
 
-    @Guide(description: "A short headline in Traditional Chinese, at most 16 characters")
+    @Guide(description: "A short headline in the user's language, at most 16 characters")
     var headline: String
 
-    @Guide(description: "A plain-language explanation in Traditional Chinese, 1 to 3 sentences, for a developer who is not a git expert")
+    @Guide(description: "A plain-language explanation in the user's language, 1 to 3 sentences, for a developer who is not a git expert")
     var explanation: String
 
-    @Guide(description: "Up to 4 short, concrete next-step instructions in Traditional Chinese")
+    @Guide(description: "Up to 4 short, concrete next-step instructions in the user's language")
     var steps: [String]
 
-    @Guide(description: "A single clarifying question in Traditional Chinese if the situation is ambiguous, otherwise an empty string")
+    @Guide(description: "A single clarifying question in the user's language if the situation is ambiguous, otherwise an empty string")
     var clarifyingQuestion: String
 }
 
@@ -45,13 +47,22 @@ struct FoundationModelsAdvisor: OffloadAdvisor {
         }
     }
 
-    private static let instructions = """
-    你是 CacheClear App 內的「卸載協調助理」,協助使用者把本機的 Git 專案安全地推送到 \
-    GitHub 後,釋放本機磁碟空間。你的最高原則:除非 GitHub 已經(或即將透過自動推送)\
-    確實擁有全部內容,否則絕不建議刪除本機程式碼。當情況不明確時,寧可提出「一個」釐清問題,\
-    也不要猜測。一律使用繁體中文,語氣冷靜、具體、像資深工程師在旁邊協助。你只負責「解釋與建議」,\
-    實際的刪除與否一律由 App 的安全規則決定。
-    """
+    /// The language the app's UI is actually running in (en / zh-Hant / …), so
+    /// the model answers English users in English instead of hardcoded 繁體中文.
+    private static var replyLanguage: String {
+        let id = Bundle.main.preferredLocalizations.first ?? "en"
+        return Locale.current.localizedString(forIdentifier: id) ?? id
+    }
+
+    private static var instructions: String {
+        """
+        你是 CacheClear App 內的「卸載協調助理」,協助使用者把本機的 Git 專案安全地推送到 \
+        GitHub 後,釋放本機磁碟空間。你的最高原則:除非 GitHub 已經(或即將透過自動推送)\
+        確實擁有全部內容,否則絕不建議刪除本機程式碼。當情況不明確時,寧可提出「一個」釐清問題,\
+        也不要猜測。回覆一律使用「\(replyLanguage)」,語氣冷靜、具體、像資深工程師在旁邊協助。\
+        你只負責「解釋與建議」,實際的刪除與否一律由 App 的安全規則決定。
+        """
+    }
 
     func advise(_ context: RepoAdviceContext) async -> OffloadAdvice {
         let ruleAdvice = floor.evaluate(context)
